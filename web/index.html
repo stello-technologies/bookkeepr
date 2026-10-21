@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0B6B4F">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="assets/favicon.ico" sizes="48x48">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+    <title>Bookkeeper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/layout.css">
+    <link rel="stylesheet" href="/css/cards.css">
+    <link rel="stylesheet" href="/css/controls.css">
+    <link rel="stylesheet" href="/css/lists.css">
+    <link rel="stylesheet" href="/css/person.css">
+    <link rel="stylesheet" href="/css/forms.css">
+    <link rel="stylesheet" href="/css/feedback.css">
+</head>
+
+<body>
+    <div id="app"></div>
+    <div id="toast" role="status" aria-live="polite" data-testid="toast" hidden></div>
+    <noscript>Bookkeeper needs JavaScript.</noscript>
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
+    <!-- plain scripts that share one scope; the order matters, app.js must be last -->
+    <script src="/js/util.js"></script>
+    <script src="/js/state.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/ui.js"></script>
+    <script src="/js/views/home.js"></script>
+    <script src="/js/views/entries.js"></script>
+    <script src="/js/views/people.js"></script>
+    <script src="/js/views/inventory.js"></script>
+    <script src="/js/form.js"></script>
+    <script src="/js/panels.js"></script>
+    <script src="/js/invoice.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+
+</html>
