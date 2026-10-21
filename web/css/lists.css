@@ -1,0 +1,362 @@
+/* Rows and lists: entry rows, people rows, stock chips, empty states, and the desktop table.
+   Phone styles first; the @media block at the bottom is the desktop (900px and up) version of the same things. */
+
+.list {
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:16px;
+  overflow:hidden;
+}
+
+.list>*+* {
+  border-top:1px solid #EEF2F0;
+}
+
+.date {
+  font-size:12px;
+  font-weight:700;
+  color:var(--mute);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  margin:10px 2px 8px;
+  display:flex;
+  justify-content:space-between;
+}
+
+.er, .pr {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  width:100%;
+  padding:12px 14px;
+  min-height:56px;
+  background:none;
+  text-align:left;
+}
+
+.er .c1, .er .c2, .er .c4, .er .c6, .tr.hd {
+  display:none;
+}
+
+.ic {
+  width:36px;
+  height:36px;
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:none;
+}
+
+.t {
+  flex:1;
+  min-width:0;
+}
+
+.t b {
+  display:block;
+  font-size:15px;
+  font-weight:600;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.t small {
+  display:block;
+  font-size:12px;
+  color:var(--mute);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.amt {
+  font-weight:700;
+  font-size:15px;
+  text-align:right;
+  white-space:nowrap;
+}
+
+.amt small {
+  display:block;
+  font-size:11px;
+  font-weight:600;
+  color:var(--red);
+}
+
+.amt small.n {
+  color:var(--mute);
+}
+
+/* One colour set per category, used by the round icon and the type tag: sale, money in, bought, expense, money out, opening stock. */
+.ic.k-sale,
+.tag.k-sale {
+  background: #E3F2EB;
+  color: #0B6B4F;
+}
+
+.ic.k-in,
+.tag.k-in {
+  background: #E6F0FA;
+  color: #175CD3;
+}
+
+.ic.k-bought,
+.tag.k-bought {
+  background: #FDF0D5;
+  color: #8A5A00;
+}
+
+.ic.k-expense,
+.tag.k-expense {
+  background: #EEF0F2;
+  color: #3D4C46;
+}
+
+.ic.k-out,
+.tag.k-out {
+  background: #ECE9FA;
+  color: #4B3FA0;
+}
+
+.ic.k-stock,
+.tag.k-stock {
+  background: #F1F3F2;
+  color: #5B6B65;
+}
+
+/* the invoice number sits on its own line so names and statuses are never squeezed */
+.inv {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.t small.invl {
+  margin-top: 1px;
+}
+
+.copy {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--mute2);
+  cursor: pointer;
+}
+
+.copy::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.copy:hover,
+.copy:focus-visible {
+  background: #E6EEEA;
+  color: var(--g);
+  outline: none;
+}
+
+.copy.done {
+  color: var(--g);
+}
+
+.t small.d {
+  display: none;
+}
+
+.amt small.collect {
+  color: var(--red);
+}
+
+.amt small.pay {
+  color: var(--warn);
+}
+
+.tag {
+  font-size:12px;
+  font-weight:700;
+  padding:4px 10px;
+  border-radius:12px;
+  white-space:nowrap;
+}
+
+.pr .t b {
+  font-size:16px;
+}
+
+.chip-bal {
+  font-size:13px;
+  font-weight:700;
+  padding:6px 12px;
+  border-radius:14px;
+  background:#F1F3F2;
+  color:var(--ink2);
+  white-space:nowrap;
+}
+
+.chip-bal.red {
+  background:#FDE2E0;
+  color:var(--red);
+}
+
+.stk {
+  font-size:14px;
+  font-weight:700;
+  padding:6px 12px;
+  border-radius:14px;
+  background:var(--tint);
+  color:var(--g);
+  white-space:nowrap;
+}
+
+.stk.low {
+  background:#FDE8D8;
+  color:var(--warn);
+}
+
+.stk.out {
+  background:#FDE2E0;
+  color:var(--red);
+}
+
+.empty {
+  text-align:center;
+  padding:36px 20px;
+  color:var(--mute);
+}
+
+.empty b {
+  display:block;
+  color:var(--ink);
+  font-size:17px;
+  margin-bottom:4px;
+}
+
+@media (min-width: 900px) {
+  .tbl {
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:16px;
+    overflow:hidden;
+  }
+
+  .tbl .date {
+    display:none;
+  }
+
+  .tbl .list {
+    background:none;
+    border:0;
+    border-radius:0;
+  }
+
+  .tbl .list+.list {
+    border-top:1px solid #EEF2F0;
+  }
+
+  .tbl .tr.hd {
+    display:flex;
+    align-items:center;
+    padding:0 16px;
+    height:40px;
+    background:#F8FAF9;
+    font-size:12px;
+    font-weight:700;
+    color:var(--mute);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+  }
+
+  .tbl .er {
+    gap:0;
+    padding:0 16px;
+    height:52px;
+    min-height:0;
+    font-size:14px;
+  }
+
+  .tbl .er .ic, .tbl .er .t small {
+    display:none;
+  }
+
+  .tbl .er .c1, .tbl .er .c2, .tbl .er .c4, .tbl .er .c6 {
+    display:block;
+  }
+
+  .tbl .er:hover {
+    background:#FAFCFB;
+  }
+
+  .c1 {
+    width:62px;
+    flex:none;
+    color:var(--mute);
+  }
+
+  .c2 {
+    width:130px;
+    flex:none;
+  }
+
+  .c3, .tbl .er .t {
+    flex:1 1 0;
+    min-width:0;
+    padding-right:10px;
+  }
+
+  .tbl .er .t b {
+    font-weight:600;
+    font-size:14px;
+  }
+
+  .c4 {
+    width:108px;
+    flex:none;
+    color:var(--ink2);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .c5, .tbl .er .amt {
+    width:100px;
+    flex:none;
+    font-size:14px;
+  }
+
+  .tbl .er .amt small {
+    display:none;
+  }
+
+  .c6 {
+    width:118px;
+    flex:none;
+    text-align:right;
+    white-space:nowrap;
+    padding-left:16px;
+  }
+
+  .tr.hd .c5, .tr.hd .c6 {
+    text-align:right;
+  }
+
+  .tbl .er .t small.d {
+    display: flex;
+    font-size: 11px;
+  }
+
+  .c6.collect {
+    color: var(--red);
+  }
+
+  .c6.pay {
+    color: var(--warn);
+  }
+}

@@ -2,7 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId, type Document } from 'mongodb';
 import { z } from 'zod';
-import { entries, items, parties, live, fail, oid, view } from './db';
+import { entries, items, parties, live, fail, oid, view } from '../api/db';
 
 const DAY = 86_400_000;
 export const round = (n: number) => Math.round(n * 1e6) / 1e6; // tidy float quantities
@@ -28,17 +28,20 @@ const STOCK_TYPES = ['opening_stock', 'purchase', 'sale'];
 
 /** Quantity in / out per item id, for entries matching `dates` (e.g. { date: { $lt: x } }). */
 async function moves(tenantId: string, dates: Document = {}, itemId?: ObjectId) {
-  const rows = await entries().aggregate([
-    { $match: live(tenantId, { type: { $in: STOCK_TYPES }, ...(itemId ? { itemId } : {}), ...dates }) },
-    { $group: { _id: { item: '$itemId', type: '$type' }, qty: { $sum: '$qty' } } },
-  ]).toArray();
+  // Filter by type BEFORE unwinding the lines, then total each item's quantity.
+  const total = async (types: string[]) => {
+    const rows = await entries().aggregate([
+      { $match: live(tenantId, { type: { $in: types }, ...(itemId ? { 'lines.itemId': itemId } : {}), ...dates }) },
+      { $unwind: '$lines' }, // one row per product line
+      ...(itemId ? [{ $match: { 'lines.itemId': itemId } }] : []),
+      { $group: { _id: '$lines.itemId', qty: { $sum: '$lines.qty' } } },
+    ]).toArray();
+    return new Map<string, number>(rows.map((r) => [String(r._id), r.qty]));
+  };
+  const [bringIn, takeOut] = await Promise.all([total(['opening_stock', 'purchase']), total(['sale'])]);
   const byItem = new Map<string, { in: number; out: number }>();
-  for (const r of rows) {
-    const m = byItem.get(String(r._id.item)) ?? { in: 0, out: 0 };
-    if (r._id.type === 'sale') m.out += r.qty;
-    else m.in += r.qty;
-    byItem.set(String(r._id.item), m);
-  }
+  for (const [id, qty] of bringIn) byItem.set(id, { in: qty, out: 0 });
+  for (const [id, qty] of takeOut) byItem.set(id, { in: byItem.get(id)?.in ?? 0, out: qty });
   return byItem;
 }
 
@@ -88,11 +91,13 @@ async function summary(tenantId: string, win: keyof typeof WINDOWS) {
 
   const sold = await entries().aggregate([
     { $match: live(tenantId, { type: 'sale', ...inWindow }) },
-    { $group: { _id: '$itemId', qty: { $sum: '$qty' } } },
+    { $unwind: '$lines' },
+    { $group: { _id: '$lines.itemId', qty: { $sum: '$lines.qty' } } },
   ]).toArray();
   const bought = await entries().aggregate([
     { $match: live(tenantId, { type: { $in: ['purchase', 'opening_stock'] } }) },
-    { $group: { _id: '$itemId', cost: { $sum: '$totalKobo' }, qty: { $sum: '$qty' } } },
+    { $unwind: '$lines' },
+    { $group: { _id: '$lines.itemId', cost: { $sum: '$lines.totalKobo' }, qty: { $sum: '$lines.qty' } } },
   ]).toArray();
   const avgCost = new Map(bought.map((b) => [String(b._id), b.qty ? b.cost / b.qty : 0]));
   const cogs = Math.round(sold.reduce((s, r) => s + r.qty * (avgCost.get(String(r._id)) ?? 0), 0));
@@ -148,13 +153,15 @@ async function statement(tenantId: string, q: z.infer<typeof statementQuery>) {
     const list = await items().find(live(tenantId, itemId ? { _id: itemId } : {})).sort({ name: 1 }).toArray();
     const before = await moves(tenantId, { date: { $lt: from } }, itemId);
     const during = await moves(tenantId, { date: { $gte: from, $lt: to } }, itemId);
-    return { kind, from, to, rows: list.map((it) => {
-      const id = String(it._id);
-      const b = before.get(id) ?? { in: 0, out: 0 };
-      const d = during.get(id) ?? { in: 0, out: 0 };
-      const opening = round(b.in - b.out);
-      return { itemId: id, name: it.name, unit: it.unit, opening, in: round(d.in), out: round(d.out), closing: round(opening + d.in - d.out) };
-    }) };
+    return {
+      kind, from, to, rows: list.map((it) => {
+        const id = String(it._id);
+        const b = before.get(id) ?? { in: 0, out: 0 };
+        const d = during.get(id) ?? { in: 0, out: 0 };
+        const opening = round(b.in - b.out);
+        return { itemId: id, name: it.name, unit: it.unit, opening, in: round(d.in), out: round(d.out), closing: round(opening + d.in - d.out) };
+      })
+    };
   }
 
   // Party: entries in the period, balance brought forward, running balance.

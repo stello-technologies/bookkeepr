@@ -1,0 +1,54 @@
+/* Sign-in page and toast messages.
+   Phone styles first; the @media block at the bottom is the desktop (900px and up) version of the same things. */
+
+.login {
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  padding:24px;
+  text-align:center;
+}
+
+.login h1 {
+  margin:0;
+  font-size:30px;
+}
+
+.login p {
+  margin:0;
+  color:var(--mute);
+  max-width:300px;
+}
+
+.login .save {
+  max-width:300px;
+}
+
+#toast {
+  position:fixed;
+  left:50%;
+  transform:translateX(-50%);
+  bottom:calc(100px + env(safe-area-inset-bottom));
+  z-index:50;
+  background:var(--ink);
+  color:#fff;
+  padding:12px 18px;
+  border-radius:14px;
+  font-weight:600;
+  font-size:15px;
+  max-width:calc(100vw - 32px);
+  box-shadow:0 6px 20px rgba(0,0,0,.25);
+}
+
+#toast.bad {
+  background:var(--red);
+}
+
+@media (min-width: 900px) {
+  #toast {
+    bottom:28px;
+  }
+}

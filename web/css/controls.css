@@ -1,0 +1,192 @@
+/* Chips, search box, filters, buttons.
+   Phone styles first; the @media block at the bottom is the desktop (900px and up) version of the same things. */
+
+.chips {
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  padding:2px 0 4px;
+  scrollbar-width:none;
+}
+
+.chips::-webkit-scrollbar {
+  display:none;
+}
+
+.chip {
+  position:relative;
+  flex:none;
+  height:36px;
+  padding:0 14px;
+  border-radius:18px;
+  background:#fff;
+  border:1px solid var(--line2);
+  font-size:14px;
+  font-weight:600;
+  color:var(--ink2);
+  display:flex;
+  align-items:center;
+  white-space:nowrap;
+}
+
+/* 36px look, 48px tap area */
+.chip::after {
+  content:'';
+  position:absolute;
+  inset:-6px 0;
+}
+
+.chip.on {
+  background:var(--g);
+  border-color:var(--g);
+  color:#fff;
+}
+
+.search {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  height:48px;
+  border-radius:14px;
+  background:#fff;
+  border:1px solid var(--line2);
+  padding:0 14px;
+  color:var(--mute2);
+}
+
+.search input {
+  flex:1;
+  min-width:0;
+  border:0;
+  outline:0;
+  background:none;
+  font-size:16px;
+  height:100%;
+}
+
+.search:focus-within {
+  outline:2px solid var(--g);
+  outline-offset:1px;
+}
+
+.range {
+  height:36px;
+  border:1px solid var(--line2);
+  border-radius:18px;
+  background:#fff;
+  padding:0 12px;
+  font-size:14px;
+  font-weight:600;
+  color:var(--ink2);
+}
+
+.bar {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  padding-top:calc(20px + env(safe-area-inset-top));
+}
+
+.filters {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  align-items:flex-start;
+}
+
+.filters .chips {
+  max-width:100%;
+}
+
+.bar .grow {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.more {
+  align-self:center;
+  min-height:48px;
+  padding:0 20px;
+  border-radius:14px;
+  border:1px solid var(--line2);
+  background:#fff;
+  font-weight:700;
+}
+
+.b {
+  flex:1;
+  min-height:48px;
+  border-radius:14px;
+  font-size:16px;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:0 12px;
+}
+
+.b.p {
+  background:var(--g);
+  color:#fff;
+}
+
+.b.s {
+  background:#fff;
+  border:1px solid var(--line2);
+  color:var(--ink);
+}
+
+.mini {
+  min-height:48px;
+  padding:0 12px;
+  border:1px solid var(--line2);
+  border-radius:12px;
+  font-weight:700;
+  color:var(--g);
+  white-space:nowrap;
+  background:#fff;
+  display:flex;
+  align-items:center;
+}
+
+@media (min-width: 900px) {
+  .chips /* 36px look, 48px tap area */
+.chip::after {
+    display:none;
+  }
+
+  .mini {
+    min-height:44px;
+  }
+
+  .bar {
+    flex-direction:row;
+    align-items:center;
+    gap:16px;
+    padding-top:0;
+  }
+
+  .bar .h1 {
+    flex:1;
+  }
+
+  .bar .search {
+    width:380px;
+    height:44px;
+    border-radius:12px;
+    font-size:15px;
+  }
+
+  .filters {
+    flex-direction:row;
+    align-items:center;
+    gap:8px;
+  }
+
+  .filters .grow {
+    margin-left:auto;
+  }
+}

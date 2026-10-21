@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import Fastify, { type FastifyError } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { ZodError } from 'zod';
@@ -9,6 +9,7 @@ import { auth } from './auth';
 import { connect } from './db';
 import { crudRoutes } from './crud';
 import { reportRoutes } from './reports';
+import { existsSync } from 'node:fs';
 
 export function buildApp(getKey?: JWTVerifyGetKey) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
@@ -28,9 +29,21 @@ export function buildApp(getKey?: JWTVerifyGetKey) {
 
   auth(app, getKey);
   app.get('/health', async () => ({ ok: true }));
+  // What the browser needs to start Auth0 sign-in. Public on purpose: none of it is secret.
+  if (!process.env.AUTH0_CLIENT_ID) app.log.error('AUTH0_CLIENT_ID is not set: browser sign-in cannot start');
+  app.get('/config.json', async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return {
+      domain: process.env.AUTH0_DOMAIN,
+      clientId: process.env.AUTH0_CLIENT_ID,
+      audience: process.env.AUTH0_AUDIENCE,
+    };
+  });
   crudRoutes(app);
   reportRoutes(app);
-  app.register(fastifyStatic, { root: path.resolve('public') });
+  const webDir = fileURLToPath(new URL('../web', import.meta.url));
+  if (!existsSync(webDir)) app.log.error(`Web folder not found: ${webDir}`);
+  app.register(fastifyStatic, { root: webDir });
   return app;
 }
 
@@ -38,6 +51,7 @@ export function buildApp(getKey?: JWTVerifyGetKey) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error('MONGODB_URI must be set');
+  if (!process.env.AUTH0_CLIENT_ID) throw new Error('AUTH0_CLIENT_ID must be set');
   await connect(uri);
   const app = buildApp();
   await app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' });

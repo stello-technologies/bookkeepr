@@ -1,0 +1,60 @@
+/* One person's page: back link, balance card, statement.
+   Phone styles first; the @media block at the bottom is the desktop (900px and up) version of the same things. */
+
+.nav-back {
+  display:flex;
+  align-items:center;
+  gap:4px;
+  color:var(--g);
+  font-weight:600;
+  min-height:48px;
+  margin:calc(14px + env(safe-area-inset-top)) 0 0 -10px;
+  padding:0 10px 0 6px;
+}
+
+.name {
+  font-size:24px;
+  font-weight:700;
+}
+
+.sub {
+  font-size:14px;
+  color:var(--mute);
+  margin-top:2px;
+}
+
+.bal {
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:18px;
+}
+
+.bal .l {
+  font-size:13px;
+  color:var(--mute);
+  font-weight:600;
+}
+
+.bal .v {
+  font-size:34px;
+  font-weight:700;
+  margin:2px 0 14px;
+}
+
+.bal .v+.l {
+  margin-top:-4px;
+}
+
+.btns {
+  display:flex;
+  gap:10px;
+}
+
+.up {
+  color:var(--red);
+}
+
+.dn {
+  color:var(--g);
+}

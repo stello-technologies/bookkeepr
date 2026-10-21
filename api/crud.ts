@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { ObjectId, type Collection, type Document } from 'mongodb';
 import { z } from 'zod';
 import { parties, items, entries, live, words, view, fail, oid, ENTRY_TYPES } from './db';
-import { balances, stockByItem, round } from './reports';
+import { balances, stockByItem, round } from '../api/reports';
 
 const PAGE_SIZE = 100;
 
@@ -17,12 +17,14 @@ const note = z.string().max(500).default('');
 const partyBody = z.object({ name: z.string().trim().min(1).max(100), phone: z.string().trim().max(30).default('') });
 const itemBody = z.object({ name: z.string().trim().min(1).max(100), unit: z.string().trim().min(1).max(20), priceKobo: kobo });
 
-// The server works out totalKobo = round(qty x unitPriceKobo); the client never sends it for these.
-const line = { itemId: oid, qty, unitPriceKobo: kobo, note };
+// An invoice (sale, purchase or opening stock) carries one or more product lines.
+// The server works out each line's total = round(qty x unitPriceKobo) and the invoice total = their sum.
+const line = z.object({ itemId: oid, qty, unitPriceKobo: kobo });
+const lines = z.array(line).min(1).max(50);
 const entryBody = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('sale'), ...line, partyId: oid.optional(), paidKobo: kobo.optional() }),
-  z.object({ type: z.literal('purchase'), ...line, partyId: oid.optional(), paidKobo: kobo.optional() }),
-  z.object({ type: z.literal('opening_stock'), ...line }), // stock you already had; counts for stock and cost only
+  z.object({ type: z.literal('sale'), lines, note, partyId: oid.optional(), paidKobo: kobo.optional() }),
+  z.object({ type: z.literal('purchase'), lines, note, partyId: oid.optional(), paidKobo: kobo.optional() }),
+  z.object({ type: z.literal('opening_stock'), lines, note }), // stock you already had; counts for stock and cost only
   z.object({ type: z.literal('expense'), totalKobo: kobo.min(1), note }),
   z.object({ type: z.literal('payment_in'), partyId: oid, totalKobo: kobo.min(1), note }),
   z.object({ type: z.literal('payment_out'), partyId: oid, totalKobo: kobo.min(1), note }),
@@ -31,7 +33,8 @@ const entryBody = z.discriminatedUnion('type', [
 const idParam = z.object({ id: oid });
 const listQuery = z.object({ q: z.string().max(100).optional(), cursor: oid.optional() });
 const entryQuery = listQuery.extend({
-  type: z.enum(ENTRY_TYPES).optional(),
+  // one type, or several separated by commas: ?type=payment_in,payment_out
+  type: z.string().transform((s) => s.split(',')).pipe(z.array(z.enum(ENTRY_TYPES)).min(1)).optional(),
   partyId: oid.optional(),
   itemId: oid.optional(),
   from: z.coerce.date().optional(),
@@ -63,18 +66,23 @@ async function createEntry(tenantId: string, body: z.infer<typeof entryBody>) {
     partyName = party.name;
   }
 
-  if ('itemId' in body) {
-    const item = await items().findOne(live(tenantId, { _id: new ObjectId(body.itemId) }));
-    if (!item) fail(404, 'item_not_found');
-    if (body.type === 'sale') {
-      const have = (await stockByItem(tenantId, item._id)).get(String(item._id)) ?? 0;
-      if (round(body.qty) > have) fail(409, 'insufficient_stock', `only ${have} ${item.unit} in stock`);
+  if ('lines' in body) {
+    const wanted = [...new Set(body.lines.map((l) => l.itemId))];
+    const found = await items().find(live(tenantId, { _id: { $in: wanted.map((i) => new ObjectId(i)) } })).toArray();
+    const byId = new Map(found.map((i) => [String(i._id), i]));
+    if (wanted.some((i) => !byId.has(i))) fail(404, 'item_not_found');
+    if (body.type === 'sale') { // what is wanted, per item, across all lines, must be on the shelf
+      const want = new Map<string, number>();
+      for (const l of body.lines) want.set(l.itemId, (want.get(l.itemId) ?? 0) + l.qty);
+      const stock = await stockByItem(tenantId);
+      for (const [id, q] of want) {
+        const have = stock.get(id) ?? 0;
+        if (round(q) > have) fail(409, 'insufficient_stock', `only ${have} ${byId.get(id)!.unit} of ${byId.get(id)!.name} in stock`);
+      }
     }
-    Object.assign(e, {
-      itemId: item._id, qty: body.qty, unitPriceKobo: body.unitPriceKobo,
-      totalKobo: Math.round(body.qty * body.unitPriceKobo),
-    });
-    itemName = item.name;
+    e.lines = body.lines.map((l) => ({ itemId: new ObjectId(l.itemId), qty: l.qty, unitPriceKobo: l.unitPriceKobo, totalKobo: Math.round(l.qty * l.unitPriceKobo) }));
+    e.totalKobo = e.lines.reduce((sum: number, l: { totalKobo: number }) => sum + l.totalKobo, 0);
+    itemName = [...byId.values()].map((i) => i.name).join(' ');
   } else {
     e.totalKobo = body.totalKobo;
   }
@@ -136,9 +144,9 @@ export function crudRoutes(app: FastifyInstance) {
   app.get('/api/entries', async (req) => {
     const { q, cursor, type, partyId, itemId, from, to } = entryQuery.parse(req.query);
     const filter: Document = {};
-    if (type) filter.type = type;
+    if (type) filter.type = { $in: type };
     if (partyId) filter.partyId = new ObjectId(partyId);
-    if (itemId) filter.itemId = new ObjectId(itemId);
+    if (itemId) filter['lines.itemId'] = new ObjectId(itemId);
     if (from || to) filter.date = { ...(from && { $gte: from }), ...(to && { $lt: to }) };
     const { docs, next } = await page(entries(), live(req.tenantId, filter, q), cursor);
     return { data: docs.map(view), next };
@@ -152,9 +160,11 @@ export function crudRoutes(app: FastifyInstance) {
     const e = await entries().findOne(live(req.tenantId, { _id: new ObjectId(id) }));
     if (!e) fail(404, 'not_found');
     // Removing stock that has already been sold would leave negative stock.
-    if ((e.type === 'purchase' || e.type === 'opening_stock') && e.itemId) {
-      const have = (await stockByItem(req.tenantId, e.itemId)).get(String(e.itemId)) ?? 0;
-      if (round(have - (e.qty ?? 0)) < 0) fail(409, 'would_make_stock_negative', 'some of this stock has already been sold');
+    if ((e.type === 'purchase' || e.type === 'opening_stock') && e.lines) {
+      const stock = await stockByItem(req.tenantId);
+      const taking = new Map<string, number>();
+      for (const l of e.lines) taking.set(String(l.itemId), (taking.get(String(l.itemId)) ?? 0) + l.qty);
+      for (const [itemId, q] of taking) if (round((stock.get(itemId) ?? 0) - q) < 0) fail(409, 'would_make_stock_negative', 'some of this stock has already been sold');
     }
     return softDelete(entries(), req.tenantId, id);
   });
