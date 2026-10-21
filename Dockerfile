@@ -3,10 +3,10 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency manifests
+# Copy dependency manifests and lockfile
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies required for build/tsx execution)
+# Install all dependencies (including devDependencies for tsx)
 RUN npm ci
 
 # Copy the rest of the application source code
@@ -20,15 +20,17 @@ WORKDIR /app
 # Set environment to production
 ENV NODE_ENV=production
 
-# Copy package files and install production-only dependencies for a lean final image
+# Copy package files and lockfile
 COPY package*.json ./
-RUN npm ci --omit=dev
 
-# Copy the built application source files and folders (api, web, etc.) from builder
+# Install all dependencies (or keep devDependencies since tsx is needed for npm start)
+RUN npm ci
+
+# Copy the application source files from builder
 COPY --from=builder /app ./
 
-# Expose the port (Render / Railway will automatically map your external port to this)
+# Expose the port
 EXPOSE 3000
 
-# Start the application using your npm script
+# Start the application
 CMD ["npm", "start"]
