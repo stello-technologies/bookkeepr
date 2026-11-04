@@ -24,6 +24,16 @@
 
 <body>
     <div id="app"></div>
+    <aside id="analytics-consent" class="analytics-consent" role="region" aria-labelledby="analytics-consent-title" hidden>
+        <div>
+            <b id="analytics-consent-title">Help improve Bookkeepr</b>
+            <p>Allow PostHog to collect page visits and limited feature usage, including broad entry type. Amounts, names, notes, and record IDs are never sent. You can change this choice later in Account.</p>
+        </div>
+        <div class="analytics-consent-actions">
+            <button type="button" class="mini" data-act="analytics-decline">Decline</button>
+            <button type="button" class="mini" data-act="analytics-accept">Allow analytics</button>
+        </div>
+    </aside>
     <div id="toast" role="status" aria-live="polite" data-testid="toast" hidden></div>
     <noscript>Bookkeeper needs JavaScript.</noscript>
     <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
@@ -40,6 +50,7 @@
     <script src="/js/views/people.js"></script>
     <script src="/js/views/inventory.js"></script>
     <script src="/js/views/analytics.js"></script>
+    <script src="/js/analytics.js"></script>
     <script src="/js/form.js"></script>
     <script src="/js/panels.js"></script>
     <script src="/js/invoice.js"></script>

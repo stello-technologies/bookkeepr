@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "tsx watch api/server.ts",
     "start": "tsx api/server.ts",
-    "test": "tsx --test api/test.ts api/test-sync.ts api/test-ui.ts",
+    "test": "tsx --test api/test.ts api/test-sync.ts api/test-ui.ts api/test-analytics.ts",
     "test:api": "tsx --test api/test.ts",
     "test:ui": "tsx --test api/test-ui.ts",
+    "test:analytics": "tsx --test api/test-analytics.ts",
     "typecheck": "tsc --noEmit",
     "vendor": "node scripts/vendor.mjs"
   },

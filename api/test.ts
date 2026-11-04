@@ -13,6 +13,8 @@ if (!uri) throw new Error('Set TEST_MONGODB_URI (a throwaway database) to run th
 process.env.AUTH0_DOMAIN = 'test.example.com';
 process.env.AUTH0_AUDIENCE = 'bookkeeper-test';
 process.env.AUTH0_CLIENT_ID = 'test-client';
+process.env.POSTHOG_KEY = 'phc-test-public-key';
+process.env.POSTHOG_HOST = 'https://eu.i.posthog.com';
 process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'warn';
 
 const keys = await generateKeyPair('RS256');
@@ -288,8 +290,9 @@ test('sales statement groups by Lagos day and is capped at 30 days', async () =>
 test('/config.json is public and tells the browser how to sign in', async () => {
   const r = await app.inject({ url: '/config.json' });
   assert.equal(r.statusCode, 200);
-  assert.deepEqual(Object.keys(r.json()).sort(), ['audience', 'clientId', 'domain']);
+  assert.deepEqual(Object.keys(r.json()).sort(), ['audience', 'clientId', 'domain', 'posthog']);
   assert.equal(r.json().audience, 'bookkeeper-test');
+  assert.deepEqual(r.json().posthog, { key: 'phc-test-public-key', host: 'https://eu.i.posthog.com' });
 });
 
 test('entries can be filtered by several types at once', async () => {
@@ -308,7 +311,7 @@ test('the web page and its icons are served', async () => {
   const page = await app.inject({ url: '/' });
   assert.equal(page.statusCode, 200);
   assert.match(page.body, /<title>Bookkeeper<\/title>/);
-  for (const [url, type] of [['/favicon.svg', 'image/svg+xml'], ['/favicon.ico', 'image/'], ['/apple-touch-icon.png', 'image/png'], ['/js/app.js', 'javascript'], ['/css/base.css', 'text/css']]) {
+  for (const [url, type] of [['/favicon.svg', 'image/svg+xml'], ['/favicon.ico', 'image/'], ['/apple-touch-icon.png', 'image/png'], ['/js/app.js', 'javascript'], ['/js/analytics.js', 'javascript'], ['/css/base.css', 'text/css']]) {
     const r = await app.inject({ url });
     assert.equal(r.statusCode, 200, `${url} is served`);
     assert.ok(String(r.headers['content-type']).includes(type), `${url} has type ${type}, got ${r.headers['content-type']}`);

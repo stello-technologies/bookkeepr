@@ -39,6 +39,9 @@ export function buildApp(getKey?: JWTVerifyGetKey) {
       domain: process.env.AUTH0_DOMAIN,
       clientId: process.env.AUTH0_CLIENT_ID,
       audience: process.env.AUTH0_AUDIENCE,
+      posthog: process.env.POSTHOG_KEY
+        ? { key: process.env.POSTHOG_KEY, host: process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com' }
+        : null,
     };
   });
   accountRoutes(app);

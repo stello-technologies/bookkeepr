@@ -26,6 +26,8 @@ if (!uri) throw new Error('Set TEST_MONGODB_URI (a throwaway database) to run th
 process.env.AUTH0_DOMAIN = 'test.example.com';
 process.env.AUTH0_AUDIENCE = 'bookkeeper-test';
 process.env.AUTH0_CLIENT_ID = 'test-client';
+delete process.env.POSTHOG_KEY;
+delete process.env.POSTHOG_HOST;
 process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'error';
 
 const keys = await generateKeyPair('RS256');

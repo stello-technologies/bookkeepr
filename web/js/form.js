@@ -32,6 +32,7 @@ function switchType(type) {
 
 function openForm(preset = {}) {
   F = newForm(preset.type || 'sale', preset);
+  ProductAnalytics.event('entry_form_opened');
   renderForm();
 }
 
@@ -126,7 +127,9 @@ async function saveEntry() {
   if (F.busy) return;
   F.busy = true; derive();
   try {
+    const entryType = F.type;
     const saved = await api('POST', '/api/entries', formBody());
+    ProductAnalytics.event('entry_created', { entry_type: entryType });
     await refreshLists();
     closePanel();
     toast(`Saved · ${saved.invoiceNo}`);

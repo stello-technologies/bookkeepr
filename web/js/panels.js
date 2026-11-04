@@ -18,6 +18,7 @@ async function savePerson(back) {
   if (!name) return ($('#np-err').textContent = 'Enter a name');
   try {
     const p = await api('POST', '/api/parties', { name, phone: $('#np-phone').value.trim() });
+    ProductAnalytics.event('person_created');
     await refreshLists();
     if (back && F) { F.partyId = p.id; renderForm(); } else { closePanel(); toast(`${p.name} added`); route(); }
   } catch (e) { $('#np-err').textContent = fail(e); }
@@ -28,6 +29,7 @@ async function saveItem(back) {
   if (!Number.isFinite(price)) return ($('#ni-err').textContent = 'Enter the usual price, for example 1500 or 1500.50');
   try {
     const it = await api('POST', '/api/items', { name, unit, priceKobo: price });
+    ProductAnalytics.event('item_created');
     await refreshLists();
     if (back && F) { const l = F.lines[F.pendingLine] || F.lines[0]; l.itemId = it.id; l.price = inputMoney(it.priceKobo); renderForm(); } else { closePanel(); toast(`${it.name} added`); route(); }
   } catch (e) { $('#ni-err').textContent = fail(e); }

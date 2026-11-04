@@ -12,8 +12,16 @@ setTheme(lsGet(LS.theme) === 'dark' ? 'dark' : 'light');
 const deviceId = () => { let d = lsGet(LS.device); if (!d) { d = 'd-' + Engine.newId().slice(8); lsSet(LS.device, d); } return d; };
 
 async function loadConfig() { // settings for sign-in; kept on the phone so it can start with no network
-  try { const cfg = await (await fetch('/config.json')).json(); lsSet(LS.cfg, cfg); return cfg; }
-  catch { const cfg = lsGet(LS.cfg); if (cfg) return cfg; throw new Error('Connect to the internet once to sign in.'); }
+  try {
+    const cfg = await (await fetch('/config.json')).json();
+    lsSet(LS.cfg, cfg);
+    ProductAnalytics.init(cfg.posthog);
+    return cfg;
+  } catch {
+    const cfg = lsGet(LS.cfg);
+    if (cfg) { ProductAnalytics.init(cfg.posthog); return cfg; }
+    throw new Error('Connect to the internet once to sign in.');
+  }
 }
 async function initAuth() {
   if (A) return A;
@@ -87,7 +95,10 @@ async function boot() {
     message(e.message, 'fatal');
   }
 }
-const showLogin = () => { $('#app').innerHTML = '<div class="login"><h1>Bookkeeper</h1><p>Simple books for your shop: sales, purchases, expenses and who owes what.</p><button class="save" data-act="login" data-testid="login">Sign in</button></div>'; };
+const showLogin = () => {
+  $('#app').innerHTML = '<div class="login"><h1>Bookkeeper</h1><p>Simple books for your shop: sales, purchases, expenses and who owes what.</p><button class="save" data-act="login" data-testid="login">Sign in</button><button class="link" data-act="analytics-preferences">Analytics preferences</button></div>';
+  ProductAnalytics.page('login');
+};
 
 /** A staff member opens the boss's invite link, signs in, and joins the boss's business. */
 async function joinFromInvite(user) {
@@ -131,6 +142,7 @@ function accountPanel() {
       <div class="err" id="a-err" role="alert"></div><div id="inv"></div>
       <button class="link" data-act="make-invite" data-testid="invite">Add staff</button>`
       : `<div class="sec"><b>People in this business</b></div><div class="list">${rows}</div>`}
+    <button class="link" data-act="analytics-preferences">Analytics preferences</button>
     <button class="save" data-act="signout" data-testid="signout">Sign out</button>`, 'Close'));
 }
 const why = () => encodeURIComponent((($('#c-reason') || $('#d-reason') || {}).value || '').trim());
@@ -162,6 +174,7 @@ function route() {
   const [, view = 'home', arg] = location.hash.split('/');
   const known = { home: homeView, entries: entriesView, people: arg ? () => personView(arg, my) : peopleView, inventory: inventoryView, items: inventoryView, analytics: analyticsView };
   const v = view === 'items' ? 'inventory' : known[view] ? view : 'home'; // #/items still works
+  ProductAnalytics.page(v);
   document.querySelectorAll('[data-nav]').forEach((a) => { const on = a.dataset.nav === v; a.classList.toggle('on', on); on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
   loading();
   (known[view] || homeView)(my).catch((e) => { if (my === seq) main(`<div class="view">${empty('Could not load this page', fail(e))}</div>`); });
@@ -193,9 +206,13 @@ const ACT = {
     el.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} mode`);
     el.setAttribute('aria-pressed', String(dark));
   },
+  'analytics-preferences': () => ProductAnalytics.preferences(),
+  'analytics-accept': () => ProductAnalytics.choose('accepted'),
+  'analytics-decline': () => ProductAnalytics.choose('declined'),
   'make-invite': async () => {
     try {
       const r = await cloud('POST', '/api/invites');
+      ProductAnalytics.event('invite_created');
       const link = `${location.origin}/?invite=${r.code}`;
       $('#inv').innerHTML = `<p class="muted" style="font-size:13px">Send this link to your staff member. It works once and expires in 7 days.</p><p data-testid="invite-link" style="word-break:break-all"><b>${esc(link)}</b></p>`;
       $('#a-err').textContent = '';
