@@ -47,5 +47,5 @@ async function personView(id, my) {
       <div class="btns"><button class="b p" data-act="pay" data-id="${esc(p.id)}" data-testid="record-payment">Record payment</button>${wa ? `<a class="b s" href="${wa}" target="_blank" rel="noopener" data-testid="reminder">Send reminder</a>` : ''}</div></section>
     <div class="sec"><b>Statement</b><span class="muted" style="font-size:13px">Last 30 days</span></div>
     ${rows.length ? `<div class="list">${rows.join('')}</div>` : empty('No entries in the last 30 days', '')}
-    <button class="link danger" data-act="rm-person-ask" data-id="${esc(p.id)}" data-testid="remove-person">Remove ${esc(p.name)}</button></div>`);
+    ${S.role === 'boss' ? `<button class="link danger" data-act="rm-person-ask" data-id="${esc(p.id)}" data-testid="remove-person">Remove ${esc(p.name)}</button>` : ''}</div>`);
 }

@@ -13,6 +13,8 @@ const loading = () => main('<div class="view"><p class="muted" data-testid="load
 const openPanel = (html) => { const p = $('#panel'); p.innerHTML = html; p.hidden = false; $('#dim').hidden = false; p.scrollTop = 0; };
 function closePanel() { $('#panel').hidden = true; $('#dim').hidden = true; $('#panel').innerHTML = ''; F = null; }
 const panelHtml = (title, body, close = 'Cancel') => `<div class="grab"></div><div class="head"><b>${esc(title)}</b><button data-act="close" data-testid="panel-close">${close}</button></div>${body}`;
+/** "Deleted by Ada · 3 Nov 2026, 14:02 · wrong price": every member can see this. */
+const deletedLine = (r) => `Deleted by ${memberName(r.deletedBy)} · ${dmy(r.deletedAt)}, ${hm(r.deletedAt)}${r.deletedReason ? ' · ' + r.deletedReason : ''}`;
 const fail = (e) => (e.status === 401 ? 'Your session ended. Please sign in again.' : e.message || 'Something went wrong');
 
 
@@ -47,7 +49,7 @@ function rowHtml(e, q = '', o = {}) {
   const credit = e.type === 'sale' || e.type === 'purchase';
   const owed = credit ? e.totalKobo - e.paidKobo : 0;
   const status = credit ? (owed > 0 ? (e.paidKobo === 0 ? 'on credit' : 'part paid') : 'paid') : '';
-  const text = [who, e.type === 'opening_stock' && 'Opening stock', e.type === 'expense' && 'Expense', status, !e.lines && e.type !== 'expense' && e.note].filter(Boolean).join(' · ');
+  const text = [who, e.type === 'opening_stock' && 'Opening stock', e.type === 'expense' && 'Expense', status, !e.lines && e.type !== 'expense' && e.note, e.deleted && deletedLine(e)].filter(Boolean).join(' · ');
   // owed on a sale is money to collect from the customer; owed on a purchase is money you still have to pay
   const owing = e.type === 'sale' ? ['collect', 'to collect'] : ['pay', 'to pay'];
   const small = o.balance ? `<small class="n">${esc(o.balance)}</small>` : owed > 0 ? `<small class="${owing[0]}">${money(owed)} ${owing[1]}</small>` : '';

@@ -29,12 +29,15 @@ async function loadEntries(reset) {
   if (!reset && E.next) p.set('cursor', E.next);
   const mine = ++E.seq;
   try {
-    const r = await api('GET', '/api/entries?' + p);
+    const r = E.chip === 'deleted'
+      ? await api('GET', '/api/deleted')
+      : await api('GET', '/api/entries?' + p);
     if (mine !== E.seq) return; // a newer search is already running
-    await learn(r.data);
+    const data = E.chip === 'deleted' ? r.data.filter((record) => record.kind === 'entries').map(({ kind, ...record }) => record) : r.data;
+    await learn(data);
     if (mine !== E.seq) return; // a newer search started while names were reloading
-    E.list = reset ? r.data : E.list.concat(r.data);
-    E.next = r.next;
+    E.list = reset ? data : E.list.concat(data);
+    E.next = E.chip === 'deleted' ? null : r.next;
     paintEntries();
   } catch (e) { if ($('#elist')) $('#elist').innerHTML = empty('Could not load entries', fail(e)); }
 }

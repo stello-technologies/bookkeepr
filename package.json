@@ -1,14 +1,16 @@
 {
-  "name": "bookkeeper",
+  "name": "bookkeepr",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch api/server.ts",
     "start": "tsx api/server.ts",
-    "test": "tsx --test api/test.ts api/test-ui.ts",
+    "test": "tsx --test api/test.ts api/test-sync.ts api/test-ui.ts",
     "test:api": "tsx --test api/test.ts",
     "test:ui": "tsx --test api/test-ui.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vendor": "node scripts/vendor.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.6",

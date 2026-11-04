@@ -38,20 +38,24 @@ function openDetail(id, confirming) {
   const t = TYPE[e.type], p = e.partyId && party(e.partyId), credit = e.type === 'sale' || e.type === 'purchase';
   const lineRows = (e.lines || []).map((l) => { const it = item(l.itemId); return [it ? it.name : 'Removed item', `${num(l.qty)} × ${money(l.unitPriceKobo)} = ${money(l.totalKobo)}`]; });
   const kv = [['Invoice', e.invoiceNo, copyMark(e.invoiceNo, 18)], ['Date', `${dmy(e.date)}, ${hm(e.date)}`], p && ['Person', p.name], ...lineRows, ['Total', money(e.totalKobo)],
-    credit && ['Paid', money(e.paidKobo)], credit && e.paidKobo < e.totalKobo && [e.type === 'sale' ? 'Still to collect' : 'Still to pay', money(e.totalKobo - e.paidKobo)], e.note && ['Note', e.note]].filter(Boolean);
+    credit && ['Paid', money(e.paidKobo)], credit && e.paidKobo < e.totalKobo && [e.type === 'sale' ? 'Still to collect' : 'Still to pay', money(e.totalKobo - e.paidKobo)], e.note && ['Note', e.note],
+    e.createdBy && ['Recorded by', memberName(e.createdBy)], e.deleted && ['Deleted', deletedLine(e).replace(/^Deleted /, '')]].filter(Boolean);
   const image = credit ? `<div class="btns" style="margin-bottom:6px"><button class="b s" data-act="save-image" data-id="${esc(id)}" data-testid="export-invoice">Save as image</button>${canShareImage() ? `<button class="b p" data-act="share-image" data-id="${esc(id)}" data-testid="share-invoice">Share</button>` : ''}</div>` : '';
+  const action = e.deleted ? '' : can('delete_entry', e) ? `<button class="link danger" data-act="del-entry-ask" data-id="${esc(id)}" data-testid="delete-entry">Delete entry</button>`
+    : '<p class="muted" data-testid="no-delete" style="font-size:13px">Only the boss, or the person who recorded this, can delete it.</p>';
   openPanel(panelHtml(t.label, `<dl class="kv" data-testid="detail">${kv.map(([k, v, extra = '']) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}${extra}</dd></div>`).join('')}</dl>
-    ${confirming ? `<div class="confirm">Delete this entry? It disappears from every total. To correct a mistake, delete it and add it again.</div><div class="err" id="d-err" role="alert"></div>
+    ${confirming ? `<div class="confirm">Delete this entry? It disappears from every total, and everyone on this business will see who deleted it. To correct a mistake, delete it and add it again.</div>
+      <div class="f"><label for="d-reason">Reason (optional)</label><input class="in" id="d-reason" data-testid="d-reason" maxlength="200" autocomplete="off"></div><div class="err" id="d-err" role="alert"></div>
       <div class="stack"><button class="save warn" data-act="del-entry" data-id="${esc(id)}" data-testid="confirm-delete">Yes, delete</button><button class="b s" data-act="close">Keep it</button></div>`
-      : `${image}<button class="link danger" data-act="del-entry-ask" data-id="${esc(id)}" data-testid="delete-entry">Delete entry</button>`}`, 'Close'));
+      : `${e.deleted ? '' : image}${action}`}`, 'Close'));
 }
 function openConfirm(title, text, act, id, yes) {
-  openPanel(panelHtml(title, `<div class="confirm">${esc(text)}</div><div class="err" id="c-err" role="alert"></div><div class="stack"><button class="save warn" data-act="${act}" data-id="${esc(id)}" data-testid="confirm-yes">${yes}</button><button class="b s" data-act="close">Keep</button></div>`));
+  openPanel(panelHtml(title, `<div class="confirm">${esc(text)} Everyone on this business will see who removed it.</div><div class="f"><label for="c-reason">Reason (optional)</label><input class="in" id="c-reason" data-testid="c-reason" maxlength="200" autocomplete="off"></div><div class="err" id="c-err" role="alert"></div><div class="stack"><button class="save warn" data-act="${act}" data-id="${esc(id)}" data-testid="confirm-yes">${yes}</button><button class="b s" data-act="close">Keep</button></div>`));
 }
 function openItemDetail(id) {
   const it = item(id); if (!it) return;
   openPanel(panelHtml(it.name, `<dl class="kv" data-testid="detail"><div><dt>Sold by</dt><dd>${esc(it.unit)}</dd></div><div><dt>Usual price</dt><dd>${money(it.priceKobo)}</dd></div><div><dt>In stock</dt><dd>${num(it.stock)} ${esc(plural(it.unit, it.stock))}</dd></div></dl>
-    <button class="link danger" data-act="rm-item-ask" data-id="${esc(id)}" data-testid="remove-item">Remove item</button>`, 'Close'));
+    ${S.role === 'boss' ? `<button class="link danger" data-act="rm-item-ask" data-id="${esc(id)}" data-testid="remove-item">Remove item</button>` : ''}`, 'Close'));
 }
 
 async function remove(path, ok, errBox) {

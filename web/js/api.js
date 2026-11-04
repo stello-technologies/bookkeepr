@@ -1,13 +1,8 @@
 'use strict';
-/* Talking to the server: every call carries the access token. Also keeps names (people, items) fresh. */
+/* Every screen talks to api(). It answers from the books on this phone, so it works with no network.
+   cloud() is for the few things that need the internet (members and invites). */
 
-async function api(method, path, body) {
-  const token = await A.getTokenSilently();
-  const res = await fetch(path, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, code: data.code });
-  return data;
-}
+const api = (method, path, body) => Eng.request(method, path, body);
 async function all(path) { // follow the cursor until the last page
   const out = [];
   let next = '';
@@ -20,12 +15,21 @@ async function all(path) { // follow the cursor until the last page
 }
 const refreshLists = async () => { [S.parties, S.items] = await Promise.all([all('/api/parties'), all('/api/items')]); };
 const index = (rows) => rows.forEach((e) => S.rows.set(e.id, e));
-const gone = new Set(); // ids still unknown after a refresh: removed people and items
-/** Remember these entries; if they mention a person or item we haven't loaded (added elsewhere), reload the lists once. */
-async function learn(rows) {
-  index(rows);
-  const missing = () => rows.flatMap((e) => [e.partyId && !party(e.partyId) && e.partyId, e.itemId && !item(e.itemId) && e.itemId]).filter((x) => x && !gone.has(x));
-  if (!missing().length) return;
-  await refreshLists();
-  missing().forEach((x) => gone.add(x));
+const learn = async (rows) => index(rows); // names are always on the phone, so there is nothing to reload
+
+/** An access token, or null when the phone cannot get one right now (offline). */
+async function token() {
+  if (!A) { try { await initAuth(); } catch { return null; } }
+  try { return await A.getTokenSilently(); } catch { return null; }
+}
+/** Talk to the cloud directly. Only for things that cannot be done offline. */
+async function cloud(method, path, body) {
+  const offline = () => Object.assign(new Error('You are offline. Try again when you have internet.'), { status: 0 });
+  const t = await token();
+  if (!t) throw offline();
+  let res;
+  try { res = await fetch(path, { method, headers: { authorization: `Bearer ${t}`, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); } catch { throw offline(); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, code: data.code });
+  return data;
 }

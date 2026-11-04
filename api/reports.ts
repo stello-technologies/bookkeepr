@@ -2,7 +2,8 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId, type Document } from 'mongodb';
 import { z } from 'zod';
-import { entries, items, parties, live, fail, oid, view } from '../api/db';
+import { entries, items, parties, live, fail, oid, view } from './db';
+import type { Role } from './accounts';
 
 const DAY = 86_400_000;
 export const round = (n: number) => Math.round(n * 1e6) / 1e6; // tidy float quantities
@@ -79,7 +80,7 @@ const WINDOWS = { day: 1, week: 7, month: 30 }; // rolling: the last 24h / 7d / 
  * Cost of goods sold = qty sold x average cost of that item
  * (average cost = all purchases + opening stock cost / their qty).
  */
-async function summary(tenantId: string, win: keyof typeof WINDOWS) {
+async function summary(tenantId: string, win: keyof typeof WINDOWS, role: Role) {
   const from = new Date(Date.now() - WINDOWS[win] * DAY);
   const inWindow = { date: { $gte: from } };
 
@@ -105,7 +106,7 @@ async function summary(tenantId: string, win: keyof typeof WINDOWS) {
   const { all } = await balances(tenantId);
   const sales = sum('sale');
   const expenses = sum('expense');
-  return {
+  const out = {
     window: win, from, to: new Date(),
     salesKobo: sales,
     purchasesKobo: sum('purchase'),
@@ -115,6 +116,9 @@ async function summary(tenantId: string, win: keyof typeof WINDOWS) {
     owedToYouKobo: all.owesYouKobo, // all-time, not just this window
     youOweKobo: all.youOweKobo,
   };
+  // Only the boss sees profit. Staff get everything else.
+  if (role !== 'boss') { delete (out as Partial<typeof out>).cogsKobo; delete (out as Partial<typeof out>).profitKobo; }
+  return out;
 }
 
 const statementQuery = z.object({
@@ -133,7 +137,7 @@ async function statement(tenantId: string, q: z.infer<typeof statementQuery>) {
   // One row per day (Lagos time) of sales. At most 30 days of sales, so grouping here is cheap.
   if (kind === 'sales') {
     const sales = await entries().find(live(tenantId, { type: 'sale', date: { $gte: from, $lt: to } }))
-      .project({ date: 1, totalKobo: 1, paidKobo: 1 }).sort({ _id: 1 }).toArray();
+      .project({ date: 1, totalKobo: 1, paidKobo: 1 }).sort({ date: 1, _id: 1 }).toArray();
     const days = new Map<string, { day: string; count: number; totalKobo: number; paidKobo: number; outstandingKobo: number }>();
     for (const s of sales) {
       const day = s.date.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }); // YYYY-MM-DD
@@ -168,7 +172,7 @@ async function statement(tenantId: string, q: z.infer<typeof statementQuery>) {
   if (!q.partyId) fail(400, 'party_required', 'partyId is required for a party statement');
   const party = await parties().findOne(live(tenantId, { _id: new ObjectId(q.partyId) }));
   if (!party) fail(404, 'party_not_found');
-  const history = await entries().find(live(tenantId, { partyId: party._id, date: { $lt: to } })).sort({ _id: 1 }).toArray();
+  const history = await entries().find(live(tenantId, { partyId: party._id, date: { $lt: to } })).sort({ date: 1, _id: 1 }).toArray();
   let owes = 0, owed = 0;
   let broughtForward = { owesYouKobo: 0, youOweKobo: 0 };
   const rows = [];
@@ -185,7 +189,7 @@ async function statement(tenantId: string, q: z.infer<typeof statementQuery>) {
 export function reportRoutes(app: FastifyInstance) {
   app.get('/api/summary', async (req) => {
     const { window: win } = z.object({ window: z.enum(['day', 'week', 'month']).default('month') }).parse(req.query);
-    return summary(req.tenantId, win);
+    return summary(req.tenantId, win, req.role);
   });
   app.get('/api/statements', async (req) => statement(req.tenantId, statementQuery.parse(req.query)));
 }

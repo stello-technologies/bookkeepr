@@ -17,6 +17,9 @@ import { connect, close } from './db';
 declare const drawInvoice: (entry: unknown) => Promise<HTMLCanvasElement>;
 declare const S: { rows: Map<string, unknown> };
 declare const entryTitle: (entry: unknown) => string;
+declare const Syn: { run(): Promise<void> };
+declare const refreshLists: () => Promise<void>;
+declare const route: () => void;
 
 const uri = process.env.TEST_MONGODB_URI;
 if (!uri) throw new Error('Set TEST_MONGODB_URI (a throwaway database) to run the tests');
@@ -34,7 +37,7 @@ before(async () => {
   await connect(uri);
   await app.listen({ port: 0, host: '127.0.0.1' });
   base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: (process.env.CHROME_ARGS || '').split(' ').filter(Boolean) });
 });
 after(async () => { await browser?.close(); await app.close(); await close(); });
 
@@ -50,11 +53,11 @@ const AUTH0_STUB = `window.auth0 = { createAuth0Client: async () => ({
 
 const SIZES = { phone: { width: 390, height: 844 }, desktop: { width: 1360, height: 800 } };
 
-async function openApp(size: keyof typeof SIZES, o: { signedIn?: boolean; tenant?: string } = {}) {
+async function openApp(size: keyof typeof SIZES, o: { signedIn?: boolean; tenant?: string; invite?: string; sw?: boolean } = {}) {
   const tenant = o.tenant ?? `auth0|${randomUUID()}`;
   const token = await new SignJWT({}).setProtectedHeader({ alg: 'RS256' }).setSubject(tenant)
     .setIssuer('https://test.example.com/').setAudience('bookkeeper-test').setIssuedAt().setExpirationTime('1h').sign(keys.privateKey);
-  const context = await browser.newContext({ viewport: SIZES[size], isMobile: size === 'phone', hasTouch: size === 'phone' });
+  const context = await browser.newContext({ viewport: SIZES[size], isMobile: size === 'phone', hasTouch: size === 'phone', serviceWorkers: o.sw ? 'allow' : 'block' }); // the offline shell is only switched on in the tests that are about it
   await context.route('**/auth0-spa-js*', (r) => r.fulfill({ contentType: 'application/javascript', body: AUTH0_STUB }));
   await context.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
@@ -63,7 +66,7 @@ async function openApp(size: keyof typeof SIZES, o: { signedIn?: boolean; tenant
   const page = await context.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message)); // any uncaught error in the page fails the test
-  await page.goto(base);
+  await page.goto(o.invite ? `${base}/?invite=${o.invite}` : base);
   const call = async (method: string, path: string, body?: object) => {
     const r = await fetch(base + path, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json();
@@ -85,6 +88,15 @@ const shows = (l: Locator, expected: string | RegExp, what: string) =>
 const count = (l: Locator, n: number, what: string) => until(async () => (await l.count()) === n, `${what} to be ${n}`);
 const shot = async (page: Page, name: string) => { if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/${name}.png` }); };
 const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+
+/** The page reads the phone's own copy of the books. After changing things on the server, reload and sync so the page has them. */
+async function pull(page: Page) {
+  await page.reload();
+  await page.waitForFunction(() => typeof Syn !== 'undefined');
+  await page.evaluate(async () => { await Syn.run(); await refreshLists(); route(); });
+  await id(page, 'hello').waitFor();
+}
+const syncNow = (page: Page) => page.evaluate(async () => { await Syn.run(); });
 
 /** A small shop: stock, two customers, a supplier, and a few entries. Amounts are in kobo. */
 async function seed(call: (m: string, p: string, b?: object) => Promise<any>) {
@@ -117,6 +129,32 @@ test('sign in, see the app, sign out', async () => {
   assert.deepEqual(errors, []);
 });
 
+test('dark mode is optional, readable on form controls, and remembered', async () => {
+  const { page, errors } = await openApp('phone');
+  await id(page, 'hello').waitFor();
+  await id(page, 'theme-toggle').click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+  assert.equal(await text(id(page, 'theme-toggle')), 'Light mode');
+  await id(page, 'theme-toggle').click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  await id(page, 'theme-toggle').click();
+  await id(page, 'add-tab').click();
+  const appearance = await id(page, 'f-item-0').evaluate((el) => ({
+    background: getComputedStyle(el).backgroundColor,
+    text: getComputedStyle(el).color,
+    scheme: getComputedStyle(document.documentElement).colorScheme,
+    page: getComputedStyle(document.body).backgroundColor,
+  }));
+  assert.notEqual(appearance.background, 'rgb(255, 255, 255)', 'form select is not left white in dark mode');
+  assert.notEqual(appearance.text, 'rgb(255, 255, 255)', 'select text remains readable');
+  assert.equal(appearance.page, 'rgb(13, 24, 17)', 'dark mode uses a deep green-tinted page background');
+  assert.equal(appearance.scheme, 'dark', 'native select options use dark colors');
+  await page.reload();
+  await id(page, 'hello').waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+  assert.deepEqual(errors, []);
+});
+
 test('a new business sees friendly empty states', async () => {
   const { page, errors } = await openApp('phone');
   await id(page, 'profit').waitFor();
@@ -131,7 +169,7 @@ test('a new business sees friendly empty states', async () => {
 });
 
 test('phone: stock in, sell on credit, take a payment, correct a mistake', async () => {
-  const { page, errors } = await openApp('phone');
+  const { page, call, errors } = await openApp('phone');
   await id(page, 'hello').waitFor();
 
   // add an item and a person
@@ -151,7 +189,8 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
 
   // stock they already had
   await id(page, 'add-tab').click();
-  await id(page, 'type-opening_stock').click();
+  await id(page, 'type-purchase').click();
+  await id(page, 'f-kind').selectOption('opening_stock');
   await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
   await id(page, 'f-qty-0').fill('24');
   await id(page, 'f-price-0').fill('40000');
@@ -196,12 +235,13 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
   await count(id(page, 'statement-row'), 2, 'statement rows');
   await shot(page, '04-person');
 
-  // cannot sell what is not there
+  // selling more than the shelf holds is allowed: shops sell first and record stock later. The form says so, and does not block.
   await id(page, 'add-tab').click();
   await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
   await id(page, 'f-qty-0').fill('23');
-  assert.equal(await text(id(page, 'f-err')), 'Only 22 bags of Rice 50kg in stock');
-  assert.ok(await id(page, 'save').isDisabled());
+  assert.equal(await text(id(page, 'f-err')), '');
+  assert.ok(await id(page, 'save').isEnabled(), 'a sale is never refused for low stock');
+  assert.match(await page.locator('#f-stock-0').innerText(), /In stock: 22 bags. Not enough/);
   await id(page, 'panel-close').click();
 
   // delete the payment: the balance goes back
@@ -214,12 +254,15 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
   await shows(id(page, 'toast'), 'Entry deleted', 'delete toast');
   await id(page, 'tab-people').click();
   await shows(id(page, 'person-row'), /Owes you ₦60,000/, 'balance after deleting the payment');
+  await syncNow(page); // everything done on the phone reaches the cloud: opening stock + the sale (the payment was deleted)
+  assert.equal((await call('GET', '/api/entries')).data.length, 2);
   assert.deepEqual(errors, []);
 });
 
 test('search finds words, highlights them, and the chips and dates filter', async () => {
   const { page, call, errors } = await openApp('phone');
   const { sale } = await seed(call);
+  await pull(page);
   await id(page, 'tab-entries').click();
   const rows = id(page, 'entry-row');
   await count(rows, 6, 'all entries');
@@ -245,7 +288,7 @@ test('search finds words, highlights them, and the chips and dates filter', asyn
   await id(page, 'chip-sales').click();
   await count(rows, 1, 'sales');
   await id(page, 'chip-bought').click();
-  await count(rows, 1, 'bought');
+  await count(rows, 2, 'stock entries');
   await id(page, 'chip-expenses').click();
   await count(rows, 1, 'expenses');
   await id(page, 'chip-payments').click();
@@ -263,8 +306,7 @@ test('search finds words, highlights them, and the chips and dates filter', asyn
 test('the form only asks for what each type needs and checks the numbers', async () => {
   const { page, call, errors } = await openApp('phone');
   const { ngozi } = await seed(call);
-  await page.reload(); // the page loaded before the data existed
-  await id(page, 'hello').waitFor();
+  await pull(page);
   await id(page, 'add-tab').click();
   const save = id(page, 'save');
   assert.ok(await save.isDisabled(), 'nothing filled in yet');
@@ -312,27 +354,36 @@ test('the form only asks for what each type needs and checks the numbers', async
   assert.deepEqual(errors, []);
 });
 
-test('an error from the server is shown in the form, not lost', async () => {
+test('a sale for more than the stock is accepted, and the item and Home say it is short', async () => {
   const { page, call, errors } = await openApp('phone');
-  const { rice } = await seed(call); // 24 + 10 - 2 = 32 bags
-  await page.reload();
-  await id(page, 'hello').waitFor();
+  await seed(call); // 24 + 10 - 2 = 32 bags
+  await pull(page);
   await id(page, 'add-tab').click();
   await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
-  await id(page, 'f-qty-0').fill('30');
-  assert.ok(await id(page, 'save').isEnabled(), 'the form thinks there is enough stock');
-  await call('POST', '/api/entries', { type: 'sale', lines: [{ itemId: rice.id, qty: 31, unitPriceKobo: 100 }] }); // someone else sells it first
+  await id(page, 'f-qty-0').fill('40');
+  assert.ok(await id(page, 'save').isEnabled());
   await id(page, 'save').click();
-  await shows(id(page, 'f-err'), /only 1 bag of Rice 50kg in stock/i, 'the stock error from the server');
-  assert.ok(await id(page, 'save').isEnabled(), 'they can fix it and try again');
+  await shows(id(page, 'toast'), /^Saved/, 'the sale of 40 bags is saved');
+  await shows(id(page, 'short-note'), /1 item\(s\) are short/, 'Home says something is short');
+  await id(page, 'tab-inventory').click();
+  await shows(id(page, 'stock-chip'), 'Short 8', 'the item shows how short it is');
+  await id(page, 'add-tab').click(); // fixing it: record the stock that was bought, dated yesterday
+  await id(page, 'type-purchase').click();
+  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await id(page, 'f-qty-0').fill('10');
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+  await id(page, 'f-date').fill(yesterday);
+  await id(page, 'save').click();
+  await shows(id(page, 'toast'), /^Saved/, 'the late purchase is saved');
+  await id(page, 'tab-inventory').click();
+  await shows(id(page, 'stock-chip'), '2 left', 'no longer short');
   assert.deepEqual(errors, []);
 });
 
 test('phone layout: bottom tabs, bottom sheet, big tap targets, no sideways scroll', async () => {
   const { page, call, errors } = await openApp('phone');
   await seed(call);
-  await page.reload(); // the page loaded before the data existed
-  await id(page, 'hello').waitFor();
+  await pull(page);
   assert.ok(await id(page, 'tab-home').isVisible());
   assert.ok(!(await id(page, 'nav-home').isVisible()), 'no sidebar on a phone');
   const icon = (await id(page, 'entry-row').first().locator('.ic').boundingBox())!;
@@ -352,7 +403,7 @@ test('phone layout: bottom tabs, bottom sheet, big tap targets, no sideways scro
 test('desktop layout: sidebar, table, stat strip and a side panel', async () => {
   const { page, call, errors } = await openApp('desktop');
   await seed(call);
-  await page.reload();
+  await pull(page);
   await id(page, 'nav-entries').waitFor();
   assert.ok(await id(page, 'nav-entries').isVisible());
   assert.ok(!(await id(page, 'tab-home').isVisible()), 'no bottom tabs on desktop');
@@ -394,6 +445,7 @@ test('items: stock, low and out markers, search and remove', async () => {
   const { page, call, errors } = await openApp('phone');
   const mk = (name: string, unit: string, qty: number) => call('POST', '/api/items', { name, unit, priceKobo: 150_000 }).then((it) => qty ? call('POST', '/api/entries', { type: 'opening_stock', lines: [{ itemId: it.id, qty, unitPriceKobo: 100_000 }] }) : null);
   await mk('Salt 5kg', 'pack', 86); await mk('Palm oil 5L', 'jerrycan', 3); await mk('Spaghetti carton', 'carton', 0);
+  await pull(page);
   await id(page, 'tab-inventory').click();
   await count(id(page, 'item-row'), 3, 'items');
   assert.match(await text(id(page, 'tab-inventory')), /Inventory/);
@@ -423,6 +475,7 @@ test('items: stock, low and out markers, search and remove', async () => {
 test('people: balances, search, statement, remove', async () => {
   const { page, call, errors } = await openApp('phone');
   await seed(call);
+  await pull(page);
   await id(page, 'tab-people').click();
   await count(id(page, 'person-row'), 3, 'people');
   const bal = (name: string) => text(id(page, 'person-row').filter({ hasText: name }));
@@ -441,6 +494,7 @@ test('people: balances, search, statement, remove', async () => {
   assert.equal(new URL(page.url()).hash, '#/people');
   await id(page, 'pq').fill('');
   await count(id(page, 'person-row'), 2, 'people after removing one');
+  await syncNow(page);
   const owed = await call('GET', '/api/summary?window=month');
   assert.equal(owed.owedToYouKobo, 4_000_000, 'what Ngozi owed (₦60,000, less Chidi\'s ₦20,000 advance) still counts');
   assert.deepEqual(errors, []);
@@ -454,6 +508,7 @@ test('each business only sees its own data', async () => {
   await shows(id(b.page, 'empty'), /No people yet/, "business B's people");
   await id(b.page, 'tab-entries').click();
   await shows(id(b.page, 'empty'), /No entries yet/, "business B's entries");
+  await pull(a.page);
   await id(a.page, 'tab-people').click();
   await count(id(a.page, 'person-row'), 3, "business A's people");
   assert.deepEqual([...a.errors, ...b.errors], []);
@@ -465,8 +520,7 @@ test('one invoice, several items: build it, see it, and stock follows', async ()
   const oil = await call('POST', '/api/items', { name: 'Palm oil 5L', unit: 'jerrycan', priceKobo: 1_500_000 });
   await call('POST', '/api/parties', { name: 'Ada' });
   await call('POST', '/api/entries', { type: 'opening_stock', lines: [{ itemId: rice.id, qty: 20, unitPriceKobo: 4_000_000 }, { itemId: oil.id, qty: 10, unitPriceKobo: 1_000_000 }] });
-  await page.reload();
-  await id(page, 'hello').waitFor();
+  await pull(page);
 
   await id(page, 'add-tab').click();
   await id(page, 'f-party').selectOption({ label: 'Ada' });
@@ -514,15 +568,16 @@ test('one invoice, several items: build it, see it, and stock follows', async ()
   await id(page, 'add-line').click();
   await id(page, 'f-item-1').selectOption({ label: 'Palm oil 5L' });
   await id(page, 'f-qty-1').fill('4');
-  assert.equal(await text(id(page, 'f-err')), 'Only 7 jerrycans of Palm oil 5L in stock');
-  assert.ok(await id(page, 'save').isDisabled());
+  assert.equal(await text(id(page, 'f-err')), '', 'not an error: the sale is allowed');
+  assert.match(await page.locator('#f-stock-1').innerText(), /Not enough/, 'but the form says the two lines together are more than the stock');
+  assert.ok(await id(page, 'save').isEnabled());
   assert.deepEqual(errors, []);
 });
 
 test('an invoice can be saved as an image', async () => {
   const { page, call, errors } = await openApp('phone');
   const { sale } = await seed(call); // one line, ₦60,000 still owed
-  await page.reload();
+  await pull(page);
   await id(page, 'tab-entries').click();
   await id(page, 'entry-row').filter({ hasText: sale.invoiceNo }).click();
   const [download] = await Promise.all([page.waitForEvent('download'), id(page, 'export-invoice').click()]);
@@ -556,7 +611,7 @@ test('an invoice can be saved as an image', async () => {
 test('every category has its own mark, and a sale is never called an expense', async () => {
   const { page, call, errors } = await openApp('phone');
   await seed(call);
-  await page.reload();
+  await pull(page);
   await id(page, 'tab-entries').click();
   const rows = id(page, 'entry-row');
   await count(rows, 6, 'entries');
@@ -597,7 +652,7 @@ test('every category has its own mark, and a sale is never called an expense', a
 test('the invoice number has a copy mark that copies it', async () => {
   const { page, call, errors } = await openApp('phone');
   const { sale } = await seed(call);
-  await page.reload();
+  await pull(page);
   await id(page, 'tab-entries').click();
   const row = id(page, 'entry-row').filter({ hasText: sale.invoiceNo });
   await row.waitFor();
@@ -628,5 +683,119 @@ test('the invoice number has a copy mark that copies it', async () => {
   await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('blocked')) }, configurable: true }); document.execCommand = () => true; });
   await row.locator('[data-testid=copy-invoice]:visible').click();
   await shows(id(page, 'toast'), `Copied ${sale.invoiceNo}`, 'copy fallback');
+  assert.deepEqual(errors, []);
+});
+
+// ---- the phone works on its own, and phones and roles stay in step -----------------------------------
+test('offline: a sale recorded with no connection waits, then reaches the cloud when the connection is back', async () => {
+  const { page, call, context, errors } = await openApp('phone');
+  const rice = await call('POST', '/api/items', { name: 'Rice 50kg', unit: 'bag', priceKobo: 5_000_000 });
+  await call('POST', '/api/entries', { type: 'opening_stock', lines: [{ itemId: rice.id, qty: 10, unitPriceKobo: 4_000_000 }] });
+  await pull(page);
+  await context.setOffline(true);
+  await id(page, 'add-tab').click();
+  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await id(page, 'f-qty-0').fill('3');
+  await id(page, 'save').click();
+  await shows(id(page, 'toast'), /^Saved · INV-/, 'saved with no connection');
+  await syncNow(page); // tries, and quietly gives up
+  assert.equal(await id(page, 'sync').count(), 0, 'sync status is not shown in the UI');
+  assert.equal((await call('GET', '/api/entries')).data.length, 1, 'the cloud has not seen the sale yet');
+  await context.setOffline(false);
+  await syncNow(page);
+  assert.equal((await call('GET', '/api/entries')).data.length, 2);
+  assert.deepEqual(errors, []);
+});
+
+test('two phones on one business stay in step, and a deletion shows to everyone with who and why', async () => {
+  const a = await openApp('phone');
+  const { sale } = await seed(a.call);
+  const b = await openApp('phone', { tenant: a.tenant }); // a second phone, same login
+  await pull(a.page);
+  await id(a.page, 'tab-entries').click();
+  await id(a.page, 'entry-row').filter({ hasText: sale.invoiceNo }).click();
+  await id(a.page, 'delete-entry').click();
+  await id(a.page, 'd-reason').fill('wrong price');
+  await id(a.page, 'confirm-delete').click();
+  await shows(id(a.page, 'toast'), 'Entry deleted', 'deleted on the first phone');
+  await syncNow(a.page);
+  await pull(b.page);
+  await id(b.page, 'tab-entries').click();
+  await count(id(b.page, 'entry-row'), 5, 'the second phone no longer has the sale');
+  await id(b.page, 'chip-deleted').click();
+  await shows(page_list(b.page), /Rice 50kg × 2.*Deleted by Boss.*wrong price/, 'the deletion log, on the other phone');
+  assert.deepEqual([...a.errors, ...b.errors], []);
+});
+const page_list = (page: Page) => page.locator('#elist');
+
+test('staff: no profit anywhere, every kind of entry allowed, but not the boss\'s entries, people or items', async () => {
+  const boss = await openApp('phone');
+  const { sale } = await seed(boss.call);
+  const { code } = await boss.call('POST', '/api/invites');
+  const staff = await openApp('phone', { invite: code }); // opens the boss's invite link
+  const p = staff.page;
+  await id(p, 'hello').waitFor();
+  await shows(id(p, 'sales'), '₦100,000', 'sales are shown');
+  assert.equal(await id(p, 'profit').count(), 0, 'staff never see profit');
+  await id(p, 'tab-entries').click();
+  await count(id(p, 'entry-row'), 6, 'the same books as the boss');
+  await id(p, 'entry-row').filter({ hasText: sale.invoiceNo }).click();
+  assert.equal(await id(p, 'delete-entry').count(), 0, 'no delete on the boss\'s entry');
+  assert.match(await text(id(p, 'no-delete')), /Only the boss/);
+  assert.match(await text(id(p, 'detail')), /Recorded by Boss/);
+  await id(p, 'panel-close').click();
+
+  await id(p, 'add-tab').click(); // staff record an expense, and may delete what they recorded
+  await id(p, 'type-expense').click();
+  await id(p, 'f-amount').fill('500');
+  await id(p, 'f-note').fill('Airtime');
+  await id(p, 'save').click();
+  await shows(id(p, 'toast'), /^Saved/, 'staff expense saved');
+  await id(p, 'entry-row').filter({ hasText: 'Airtime' }).click();
+  await id(p, 'delete-entry').click();
+  await id(p, 'confirm-delete').click();
+  await shows(id(p, 'toast'), 'Entry deleted', 'staff deleted their own entry');
+
+  await id(p, 'tab-people').click();
+  await id(p, 'person-row').first().click();
+  await id(p, 'person-name').waitFor();
+  assert.equal(await id(p, 'remove-person').count(), 0, 'only the boss removes people');
+  await id(p, 'tab-inventory').click();
+  await id(p, 'item-row').first().click();
+  assert.equal(await id(p, 'remove-item').count(), 0, 'only the boss removes items');
+  await id(p, 'panel-close').click();
+  await id(p, 'tab-home').click();
+  await id(p, 'avatar').click();
+  await count(id(p, 'member-row'), 2, 'the boss and this staff member');
+  assert.equal(await id(p, 'invite').count(), 0, 'only the boss invites');
+  await syncNow(p);
+  assert.equal((await boss.call('GET', '/api/entries')).data.length, 6, 'the boss sees the same books after sync');
+  assert.deepEqual([...boss.errors, ...staff.errors], []);
+});
+
+test('a removed member\'s phone clears itself the next time it connects', async () => {
+  const boss = await openApp('phone');
+  const { code } = await boss.call('POST', '/api/invites');
+  const staff = await openApp('phone', { invite: code });
+  await id(staff.page, 'hello').waitFor();
+  await boss.call('DELETE', `/api/members/${encodeURIComponent(staff.tenant)}`);
+  await syncNow(staff.page);
+  await id(staff.page, 'revoked').waitFor();
+  const left = await staff.page.evaluate(async () => ({ dbs: (await indexedDB.databases()).map((d) => d.name ?? ''), user: localStorage.getItem('bk-user') }));
+  assert.ok(!left.dbs.some((n) => n.startsWith('bk-')), 'the books are gone from the phone');
+  assert.equal(left.user, null);
+});
+
+test('the app opens again with no connection at all, with the books still there', async () => {
+  const { page, call, context, errors } = await openApp('phone', { sw: true });
+  await call('POST', '/api/items', { name: 'Rice 50kg', unit: 'bag', priceKobo: 5_000_000 });
+  await pull(page);
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.waitForFunction(async () => (await caches.keys()).length > 0);
+  await context.setOffline(true);
+  await page.reload();
+  await id(page, 'hello').waitFor();
+  await id(page, 'tab-inventory').click();
+  await shows(id(page, 'item-row'), /Rice 50kg/, 'the item is still there');
   assert.deepEqual(errors, []);
 });

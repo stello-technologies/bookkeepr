@@ -1,0 +1,14 @@
+{
+  "name": "Bookkeeper",
+  "short_name": "Bookkeeper",
+  "description": "Simple books for your shop: sales, purchases, expenses and who owes what.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0B6B4F",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

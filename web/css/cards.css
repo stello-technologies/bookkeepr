@@ -9,6 +9,13 @@
   padding:calc(20px + env(safe-area-inset-top)) 0 4px;
 }
 
+.top-actions {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:none;
+}
+
 .top h1, .h1 {
   margin:0;
   font-size:24px;

@@ -2,6 +2,7 @@
 /* Inventory: every item with its price and stock on hand, low and out markers. */
 
 function stockChip(it) {
+  if (it.stock < 0) return `<span class="stk out" data-testid="stock-chip">Short ${num(-it.stock)}</span>`;
   if (it.stock <= 0) return '<span class="stk out" data-testid="stock-chip">Out</span>';
   if (it.stock <= LOW_STOCK) return `<span class="stk low" data-testid="stock-chip">${num(it.stock)} left</span>`;
   return `<span class="stk" data-testid="stock-chip">${num(it.stock)} ${esc(plural(it.unit, it.stock))}</span>`;

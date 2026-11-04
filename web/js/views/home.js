@@ -9,11 +9,14 @@ async function homeView(my) {
   const recent = ents.data.slice(0, 5);
   main(`<div class="view narrow">
     <header class="top"><div><div class="biz-l">${esc(bizName())}</div><div class="hello" data-testid="hello">${greeting()}</div></div>
-      <button class="avatar" data-act="account" aria-label="Account" data-testid="avatar">${esc(initials())}</button></header>
+      <div class="top-actions"><button class="mini" data-act="toggle-theme" data-testid="theme-toggle" aria-label="Switch to ${document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'} mode" aria-pressed="${document.documentElement.dataset.theme === 'dark'}">${document.documentElement.dataset.theme === 'dark' ? 'Light' : 'Dark'} mode</button>
+        <button class="avatar" data-act="account" aria-label="Account" data-testid="avatar">${esc(initials())}</button></div></header>
     <div class="chips" role="group" aria-label="Period">${Object.entries(WINS).map(([k, l]) => `<button class="chip ${k === S.win ? 'on' : ''}" data-act="win" data-win="${k}" data-testid="win-${k}">${l}</button>`).join('')}</div>
-    <section class="hero"><div class="lab">Profit · last ${WINS[S.win]}</div><div class="big" data-testid="profit">${signed(sum.profitKobo)}</div>
+    <section class="hero">${sum.profitKobo === undefined
+      ? `<div class="lab">Sales · last ${WINS[S.win]}</div><div class="big" data-testid="sales">${money(sum.salesKobo)}</div>`
+      : `<div class="lab">Profit · last ${WINS[S.win]}</div><div class="big" data-testid="profit">${signed(sum.profitKobo)}</div>`}
       <div class="row">
-        <div class="cell"><div class="cl">Sales</div><div class="cv" data-testid="sales">${money(sum.salesKobo)}</div></div>
+        ${sum.profitKobo === undefined ? '' : `<div class="cell"><div class="cl">Sales</div><div class="cv" data-testid="sales">${money(sum.salesKobo)}</div></div>`}
         <div class="cell"><div class="cl">Bought</div><div class="cv" data-testid="bought">${money(sum.purchasesKobo)}</div></div>
         <div class="cell"><div class="cl">Expenses</div><div class="cv" data-testid="expenses">${money(sum.expensesKobo)}</div></div>
       </div></section>
@@ -21,6 +24,8 @@ async function homeView(my) {
       <div class="card"><div class="cl">Owed to you</div><div class="cv ${sum.owedToYouKobo > 0 ? 'red' : ''}" data-testid="owed">${signed(sum.owedToYouKobo)}</div></div>
       <div class="card"><div class="cl">You owe</div><div class="cv" data-testid="oweing">${signed(sum.youOweKobo)}</div></div>
     </div>
+    ${S.role === 'boss' ? '<div class="sec"><b></b><a href="#/analytics" data-testid="analytics-link">Analytics</a></div>' : ''}
+    ${S.items.some((i) => i.stock < 0) ? `<p data-testid="short-note" style="color:#B42318;font-size:14px;margin:0 0 12px">${S.items.filter((i) => i.stock < 0).length} item(s) are short. Record the stock you bought to fix it.</p>` : ''}
     <div class="sec"><b>Recent</b><a href="#/entries" data-testid="see-all">See all</a></div>
     ${recent.length ? `<div class="list">${recent.map((e) => rowHtml(e)).join('')}</div>` : empty('No entries yet', 'Tap + to record your first sale, purchase or expense.')}
   </div>`);

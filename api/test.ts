@@ -151,7 +151,7 @@ test('rule 3: customer and supplier balances match the formulas', async () => {
 });
 
 // ---- rule 4 ---------------------------------------------------------------------
-test('rule 4: stock on hand = opening stock + purchases - sales', async () => {
+test('rule 4: stock on hand = opening stock + purchases - sales, and nothing is ever refused for stock', async () => {
   const t = tenant();
   const item = await rice(t);
   const stock = async () => (await ok(t, 'GET', '/api/items')).data[0].stock;
@@ -159,24 +159,25 @@ test('rule 4: stock on hand = opening stock + purchases - sales', async () => {
   const sell = (qty: number) => post({ type: 'sale', lines: L(item.id, qty, 100) });
 
   assert.equal(await stock(), 0);
-  assert.equal((await sell(1)).status, 409, 'cannot sell what you do not have');
+  assert.equal((await sell(1)).status, 201, 'a sale is never refused for low stock');
+  assert.equal(await stock(), -1, 'short stock shows as a negative number');
   const purchase = (await post({ type: 'purchase', lines: L(item.id, 100, 100) })).body;
   await post({ type: 'opening_stock', lines: L(item.id, 20.5, 100) });
   const sale = (await sell(30)).body;
-  assert.equal(await stock(), 90.5);
-  assert.equal((await sell(90.6)).status, 409);
+  assert.equal(await stock(), 89.5);
   assert.equal((await sell(90.5)).status, 201);
-  assert.equal(await stock(), 0);
+  assert.equal(await stock(), -1);
 
   const st = await ok(t, 'GET', `/api/statements?kind=stock&${range()}`);
   assert.deepEqual(
     { opening: st.rows[0].opening, in: st.rows[0].in, out: st.rows[0].out, closing: st.rows[0].closing },
-    { opening: 0, in: 120.5, out: 120.5, closing: 0 });
+    { opening: 0, in: 120.5, out: 121.5, closing: -1 });
 
-  // Deleting a sale puts stock back; deleting stock that was already sold is refused.
+  // Deleting a sale puts stock back. Deleting a purchase is never refused either; the item just becomes short.
   await ok(t, 'DELETE', `/api/entries/${sale.id}`);
-  assert.equal(await stock(), 30);
-  assert.equal((await api(t, 'DELETE', `/api/entries/${purchase.id}`)).status, 409);
+  assert.equal(await stock(), 29);
+  await ok(t, 'DELETE', `/api/entries/${purchase.id}`);
+  assert.equal(await stock(), -71);
 });
 
 // ---- rule 5 ---------------------------------------------------------------------
@@ -321,7 +322,6 @@ test('one invoice can carry several items', async () => {
   const rice1 = await rice(t);
   const oil = await ok(t, 'POST', '/api/items', { name: 'Palm oil', unit: 'jerrycan', priceKobo: 500 });
   const ada = await person(t, 'Ada');
-  const post = (b: object) => api(t, 'POST', '/api/entries', b);
   await ok(t, 'POST', '/api/entries', { type: 'opening_stock', lines: [...L(rice1.id, 10, 400), ...L(oil.id, 5, 1000)] });
 
   // one sale, three lines (rice twice), one invoice number, one "paid" amount
@@ -334,11 +334,11 @@ test('one invoice can carry several items', async () => {
   const stock = async () => Object.fromEntries((await ok(t, 'GET', '/api/items')).data.map((i: any) => [i.name, i.stock]));
   assert.deepEqual(await stock(), { Rice: 5, 'Palm oil': 3 });
 
-  // what is wanted is added up per item across lines: 3 + 3 rice is more than the 5 on the shelf
-  const tooMuch = await post({ type: 'sale', lines: [...L(rice1.id, 3, 700), ...L(oil.id, 1, 1500), ...L(rice1.id, 3, 700)] });
-  assert.equal(tooMuch.status, 409);
-  assert.match(tooMuch.body.error, /only 5 kg of Rice in stock/);
-  assert.deepEqual(await stock(), { Rice: 5, 'Palm oil': 3 }, 'a refused invoice changes nothing');
+  // an invoice asking for more than the shelf holds is accepted (rice 3 + 3 against 5); the item shows short until stock is recorded
+  const tooMuch = await ok(t, 'POST', '/api/entries', { type: 'sale', lines: [...L(rice1.id, 3, 700), ...L(oil.id, 1, 1500), ...L(rice1.id, 3, 700)] });
+  assert.deepEqual(await stock(), { Rice: -1, 'Palm oil': 2 });
+  await ok(t, 'DELETE', `/api/entries/${tooMuch.id}`);
+  assert.deepEqual(await stock(), { Rice: 5, 'Palm oil': 3 });
 
   // money: ₦65 invoice, ₦30 paid -> ₦35 owed. Profit = sales - cost of goods (5 rice x 400 + 2 oil x 1000) = 6500 - 4000
   assert.equal((await ok(t, 'GET', '/api/parties')).data[0].owesYouKobo, 3500);
@@ -352,11 +352,12 @@ test('one invoice can carry several items', async () => {
   assert.equal(await find(sale.invoiceNo.slice(0, 8)), 1, 'a few characters of the invoice number are enough');
   assert.equal((await ok(t, 'GET', `/api/entries?itemId=${oil.id}`)).data.length, 2);
 
-  // stock that was already sold cannot be deleted; deleting the sale puts both items back
+  // stock that was already sold can be deleted (never refused); the items just show short. Deleting the sale evens it out.
   const opening = (await ok(t, 'GET', '/api/entries?type=opening_stock')).data[0];
-  assert.equal((await api(t, 'DELETE', `/api/entries/${opening.id}`)).status, 409);
+  await ok(t, 'DELETE', `/api/entries/${opening.id}`);
+  assert.deepEqual(await stock(), { Rice: -5, 'Palm oil': -2 });
   await ok(t, 'DELETE', `/api/entries/${sale.id}`);
-  assert.deepEqual(await stock(), { Rice: 10, 'Palm oil': 5 });
+  assert.deepEqual(await stock(), { Rice: 0, 'Palm oil': 0 });
   assert.equal((await ok(t, 'GET', '/api/summary?window=day')).profitKobo, 0);
 });
 

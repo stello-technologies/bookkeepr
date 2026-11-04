@@ -9,6 +9,8 @@ import { auth } from './auth';
 import { connect } from './db';
 import { crudRoutes } from './crud';
 import { reportRoutes } from './reports';
+import { accountRoutes } from './accounts';
+import { syncRoutes } from './sync';
 import { existsSync } from 'node:fs';
 
 export function buildApp(getKey?: JWTVerifyGetKey) {
@@ -39,11 +41,16 @@ export function buildApp(getKey?: JWTVerifyGetKey) {
       audience: process.env.AUTH0_AUDIENCE,
     };
   });
+  accountRoutes(app);
+  syncRoutes(app);
   crudRoutes(app);
   reportRoutes(app);
   const webDir = fileURLToPath(new URL('../web', import.meta.url));
   if (!existsSync(webDir)) app.log.error(`Web folder not found: ${webDir}`);
   app.register(fastifyStatic, { root: webDir });
+  app.get('/favicon.svg', (_req, reply) => reply.sendFile('assets/favicon.svg'));
+  app.get('/favicon.ico', (_req, reply) => reply.sendFile('assets/favicon.ico'));
+  app.get('/apple-touch-icon.png', (_req, reply) => reply.sendFile('assets/apple-touch-icon.png'));
   return app;
 }
 

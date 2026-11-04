@@ -1,17 +1,23 @@
 // Mongo connection, indexes, and the small helpers every other file shares.
-import { MongoClient, ObjectId, type Document } from 'mongodb';
+import { MongoClient, ObjectId, type Collection, type Document } from 'mongodb';
 import { z } from 'zod';
 
 export const ENTRY_TYPES = ['sale', 'purchase', 'expense', 'payment_in', 'payment_out', 'opening_stock'] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
-interface Base { _id: ObjectId; tenantId: string; search: string[]; deleted: boolean; deletedAt?: Date }
+// Every record carries: who made it, which change number it has (`seq`), and, once deleted, who deleted it and why.
+// Deleted records are kept forever (as tombstones) so every device and member can see them.
+interface Base {
+  _id: ObjectId; tenantId: string; search: string[];
+  seq: number; createdBy: string; deviceId?: string; receivedAt: Date;
+  deleted: boolean; deletedAt?: Date; deletedBy?: string; deletedReason?: string;
+}
 export interface Party extends Base { name: string; phone: string; createdAt: Date }
 export interface Item extends Base { name: string; unit: string; priceKobo: number; createdAt: Date }
 /** One product on an invoice. totalKobo = round(qty x unitPriceKobo). */
 export interface EntryLine { itemId: ObjectId; qty: number; unitPriceKobo: number; totalKobo: number }
 export interface Entry extends Base {
-  date: Date; // set by the server when the entry is saved
+  date: Date; // the day the entry is for: today, or earlier when it is recorded in retrospect
   type: EntryType;
   invoiceNo: string;
   partyId?: ObjectId;
@@ -20,29 +26,70 @@ export interface Entry extends Base {
   paidKobo: number;
   note: string;
 }
+/** One business. Its id is the boss's login id, so records saved before accounts existed still belong to it. */
+export interface Member { sub: string; role: 'boss' | 'staff'; name: string; removed?: boolean }
+export interface Account { _id: string; name: string; members: Member[]; counter: number }
+export interface Invite { _id: string; accountId: string; expiresAt: Date; usedBy?: string }
 
 let client: MongoClient;
 const db = () => client.db(); // database name comes from the connection string
 export const parties = () => db().collection<Party>('parties');
 export const items = () => db().collection<Item>('items');
 export const entries = () => db().collection<Entry>('entries');
+export const accounts = () => db().collection<Account>('accounts');
+export const invites = () => db().collection<Invite>('invites');
 
 export async function connect(uri: string) {
   client = new MongoClient(uri);
   await client.connect();
-  await parties().createIndex({ tenantId: 1, search: 1 });
-  await items().createIndex({ tenantId: 1, search: 1 });
+  await accounts().createIndex({ 'members.sub': 1 });
+  await parties().createIndexes([{ key: { tenantId: 1, search: 1 } }, { key: { tenantId: 1, seq: 1 } }]);
+  await items().createIndexes([{ key: { tenantId: 1, search: 1 } }, { key: { tenantId: 1, seq: 1 } }]);
   await migrateLegacyEntries();
   await entries().createIndexes([
     { key: { tenantId: 1, invoiceNo: 1 }, unique: true },
     { key: { tenantId: 1, date: -1 } },
+    { key: { tenantId: 1, seq: 1 } },
     { key: { tenantId: 1, search: 1 } },
     { key: { tenantId: 1, partyId: 1 } },
     { key: { tenantId: 1, 'lines.itemId': 1 } },
     { key: { tenantId: 1, type: 1 } },
   ]);
+  await backfillSeq();
 }
 export const close = () => client.close();
+
+/** Create the business for this login if it has none yet (safe to call twice, even at the same moment). */
+export async function ensureAccount(sub: string, bossName = 'Boss') {
+  try {
+    await accounts().updateOne({ _id: sub }, { $setOnInsert: { name: 'My business', members: [{ sub, role: 'boss', name: bossName }], counter: 0 } }, { upsert: true });
+  } catch (err: any) { if (err.code !== 11000) throw err; } // someone else created it a moment ago: fine
+}
+
+/** The next change number for a business. Devices ask "what changed after number N?". */
+export async function nextSeq(tenantId: string): Promise<number> {
+  const a = await accounts().findOneAndUpdate({ _id: tenantId }, { $inc: { counter: 1 } }, { returnDocument: 'after' });
+  if (!a) throw new Error(`no account for ${tenantId}`);
+  return a.counter;
+}
+
+/**
+ * Records saved before accounts and change numbers existed get a number, and their business as the maker.
+ * Safe to run any number of times. Returns how many records it numbered.
+ */
+export async function backfillSeq(): Promise<number> {
+  let n = 0;
+  for (const coll of [parties(), items(), entries()] as Collection<any>[]) {
+    const old = await coll.find({ seq: { $exists: false } }).sort({ _id: 1 }).toArray();
+    for (const d of old) {
+      await ensureAccount(d.tenantId);
+      await coll.updateOne({ _id: d._id }, { $set: { seq: await nextSeq(d.tenantId), createdBy: d.tenantId, receivedAt: d.createdAt ?? d.date ?? new Date() } });
+      n++;
+    }
+  }
+  if (n) console.log(`Numbered ${n} older record${n === 1 ? '' : 's'} for syncing.`);
+  return n;
+}
 
 /**
  * Entries saved before invoices had item lines kept ONE item on the entry itself (itemId, qty, unitPriceKobo).
@@ -73,8 +120,8 @@ export function words(...parts: (string | undefined)[]): string[] {
 }
 
 /**
- * THE query helper. Every read and write filter goes through here, so every query
- * is scoped to one tenant and never sees deleted records.
+ * THE query helper for everyday reads and writes: scoped to one business, and never sees deleted records.
+ * (Only sync and the deleted-records log look at deleted records, and they still filter by tenantId.)
  * `q` = typed search text; each typed word must be the start of a stored word
  * (an index range scan, not a regex).
  */
@@ -85,10 +132,10 @@ export function live(tenantId: string, extra: Document = {}, q?: string): Docume
   return filter;
 }
 
-/** Shape of a record in API responses: id instead of _id, no internal fields. */
+/** Shape of a record in API responses: id instead of _id, no internal search words. Deleted ones say so. */
 export function view(doc: Document) {
-  const { _id, tenantId, search, deleted, deletedAt, ...rest } = doc;
-  return { id: String(_id), ...rest };
+  const { _id, tenantId, search, deleted, ...rest } = doc;
+  return { id: String(_id), ...rest, ...(deleted ? { deleted: true } : {}) };
 }
 
 export const oid = z.string().regex(/^[a-f0-9]{24}$/i, 'invalid id');
