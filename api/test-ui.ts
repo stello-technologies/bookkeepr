@@ -130,6 +130,14 @@ test('sign in, see the app, sign out', async () => {
   assert.ok(await id(page, 'tab-home').isVisible());
   await id(page, 'avatar').click();
   assert.match(await text(id(page, 'whoami')), /Mama Ngozi Stores/);
+  const accountActions = page.locator('.account-actions .link');
+  assert.equal(await accountActions.count(), 2, 'account actions are separate controls');
+  const actionBounds = await accountActions.evaluateAll((els) => els.map((el) => {
+    const { top, bottom, height } = el.getBoundingClientRect();
+    return { top, bottom, height };
+  }));
+  assert.ok(actionBounds[1].top > actionBounds[0].bottom, 'account actions have visible separation on phone');
+  assert.ok(actionBounds.every(({ height }) => height < 48), 'account actions do not take up oversized button space');
   await id(page, 'signout').click();
   await id(page, 'login').waitFor();
   assert.deepEqual(errors, []);
@@ -752,7 +760,15 @@ const page_list = (page: Page) => page.locator('#elist');
 test('staff: no profit anywhere, every kind of entry allowed, but not the boss\'s entries, people or items', async () => {
   const boss = await openApp('phone');
   const { sale } = await seed(boss.call);
-  const { code } = await boss.call('POST', '/api/invites');
+  await id(boss.page, 'avatar').click();
+  await id(boss.page, 'invite').click();
+  await id(boss.page, 'invite-link').waitFor();
+  const inviteLink = await text(id(boss.page, 'invite-link'));
+  const code = new URL(inviteLink).searchParams.get('invite');
+  assert.ok(code, 'the generated invite link contains its code');
+  await id(boss.page, 'copy-invite-link').click();
+  await shows(id(boss.page, 'toast'), `Copied ${inviteLink}`, 'invite link copied');
+  assert.equal(await boss.page.evaluate(() => navigator.clipboard.readText()), inviteLink);
   const staff = await openApp('phone', { invite: code }); // opens the boss's invite link
   const p = staff.page;
   await id(p, 'hello').waitFor();

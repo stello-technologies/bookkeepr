@@ -136,13 +136,13 @@ function accountPanel() {
   const staff = active.filter((m) => m.role !== 'boss');
   const members = boss ? staff : active;
   const rows = members.map((m) => `<div class="pr" data-testid="member-row"><div class="t"><b>${esc(m.name)}</b></div>${boss ? `<button class="mini" data-act="rm-member" data-id="${esc(m.id)}" data-testid="remove-member">Remove</button>` : ''}</div>`).join('');
+  const actions = `<div class="account-actions">${boss ? '<button class="link" data-act="make-invite" data-testid="invite">Add staff</button>' : ''}<button class="link" data-act="analytics-preferences">Analytics preferences</button></div>`;
   openPanel(panelHtml('Account', `<p class="muted" style="margin-top:0">Signed in as <b data-testid="whoami">${esc(S.user?.name || S.user?.email || bizName())}</b> · ${boss ? 'Boss' : 'Staff'}</p>
     ${boss ? `<div class="sec"><b>Staff</b></div>
       ${staff.length ? `<div class="list">${rows}</div>` : '<p class="muted" data-testid="no-staff" style="margin:0 0 8px">No staff yet.</p>'}
-      <div class="err" id="a-err" role="alert"></div><div id="inv"></div>
-      <button class="link" data-act="make-invite" data-testid="invite">Add staff</button>`
+      <div class="err" id="a-err" role="alert"></div><div id="inv"></div>`
       : `<div class="sec"><b>People in this business</b></div><div class="list">${rows}</div>`}
-    <button class="link" data-act="analytics-preferences">Analytics preferences</button>
+    ${actions}
     <button class="save" data-act="signout" data-testid="signout">Sign out</button>`, 'Close'));
 }
 const why = () => encodeURIComponent((($('#c-reason') || $('#d-reason') || {}).value || '').trim());
@@ -214,7 +214,7 @@ const ACT = {
       const r = await cloud('POST', '/api/invites');
       ProductAnalytics.event('invite_created');
       const link = `${location.origin}/?invite=${r.code}`;
-      $('#inv').innerHTML = `<p class="muted" style="font-size:13px">Send this link to your staff member. It works once and expires in 7 days.</p><p data-testid="invite-link" style="word-break:break-all"><b>${esc(link)}</b></p>`;
+      $('#inv').innerHTML = `<p class="muted" style="font-size:13px">Send this link to your staff member. It works once and expires in 7 days.</p><div class="invite-link-row"><p data-testid="invite-link"><b>${esc(link)}</b></p><button type="button" class="copy" data-act="copy" data-copy="${esc(link)}" data-size="18" aria-label="Copy staff invite link" title="Copy invite link" data-testid="copy-invite-link">${svg('copy', 18, 2)}</button></div>`;
       $('#a-err').textContent = '';
     } catch (e) { $('#a-err').textContent = fail(e); }
   },
