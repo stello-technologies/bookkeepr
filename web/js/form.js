@@ -19,8 +19,9 @@ const TABS = {
   credit: { label: 'Credit', first: 'payment_in', ask: 'What happened?', kinds: { payment_in: 'A customer paid me', payment_out: 'I paid a supplier' } },
 };
 const tabOf = (type) => Object.values(TABS).find((t) => t.first === type || (t.kinds && type in t.kinds));
-const blankLine = () => ({ itemId: '', qty: '', price: '' });
+const blankLine = () => ({ itemId: '', itemSearch: '', qty: '', price: '' });
 const newForm = (type = 'sale', keep = {}) => ({ type, date: dayKey(Eng.now()), partyId: '', lines: [blankLine()], paid: '', paidTouched: false, amount: '', note: '', busy: false, pendingLine: 0, ...keep });
+const itemNameKey = (name) => String(name || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /** Change the entry type but keep what was already typed (note, person, date, item lines). */
 function switchType(type) {
@@ -40,12 +41,14 @@ function renderForm() {
   const c = FORMS[F.type], tab = tabOf(F.type);
   const field = (id, label, val, ph = '', mode = 'decimal') => `<div class="f"><label for="${id}">${label}</label><input class="in" id="${id}" data-testid="${id}" inputmode="${mode}" autocomplete="off" placeholder="${ph}" value="${esc(val)}"></div>`;
   const options = (list, val) => list.map((o) => `<option value="${esc(o.id)}" ${o.id === val ? 'selected' : ''}>${esc(o.name)}</option>`).join('');
+  const itemName = (l) => item(l.itemId)?.name || l.itemSearch || '';
   const dateField = () => `<div class="f"><label for="f-date">Date</label><input class="in" type="date" id="f-date" data-testid="f-date" value="${esc(F.date)}" max="${dayKey(Eng.now())}"></div>`;
   const partySelect = () => `<div class="f"><label for="f-party">${c.party}</label><div class="selrow"><select class="in" id="f-party" data-testid="f-party"><option value="">${c.need ? 'Choose…' : 'Walk-in / none'}</option>${options(S.parties, F.partyId)}</select><button type="button" class="mini" data-act="new-person-in-form" data-testid="f-party-new">+ New</button></div></div>`;
   const lineHtml = (l, i) => `<div class="line" data-testid="line-${i}">
     <div class="f"><label for="f-item-${i}">${F.lines.length > 1 ? `Item ${i + 1}` : 'Item'}</label>
-      <div class="selrow"><select class="in" id="f-item-${i}" data-testid="f-item-${i}"><option value="">Choose…</option>${options(S.items, l.itemId)}</select>
+      <div class="selrow"><input class="in" type="search" id="f-item-${i}" data-testid="f-item-${i}" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-item-results-${i}" autocomplete="off" placeholder="Search items" value="${esc(itemName(l))}">
       <button type="button" class="mini" data-act="new-item-in-form" data-line="${i}" data-testid="f-item-${i}-new">+ New</button></div>
+      <div class="item-results" id="f-item-results-${i}" role="listbox" aria-label="Matching items" hidden></div>
       <div class="hint" id="f-stock-${i}"></div></div>
     <div class="pair">${field(`f-qty-${i}`, 'Quantity', l.qty, '0')}${field(`f-price-${i}`, c.price, l.price, '0')}</div>
     <div class="lt"><span>Line total <b id="f-lt-${i}" data-testid="f-lt-${i}">₦0</b></span>${F.lines.length > 1 ? `<button type="button" class="link danger" data-act="remove-line" data-line="${i}" data-testid="remove-line-${i}">Remove</button>` : ''}</div></div>`;
@@ -63,6 +66,25 @@ function renderForm() {
     <div class="err" id="f-err" role="alert" data-testid="f-err"></div>
     <button class="save" id="f-save" data-act="save-entry" data-testid="save" disabled>${c.save}</button>`));
   derive();
+}
+
+function paintItemResults(index, query) {
+  const input = $(`#f-item-${index}`), box = $(`#f-item-results-${index}`);
+  if (!input || !box) return;
+  const key = itemNameKey(query);
+  if (!key) {
+    box.hidden = true;
+    box.innerHTML = '';
+    input.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  const matches = S.items.filter((it) => itemNameKey(it.name).includes(key));
+  const shown = matches.slice(0, 20);
+  box.innerHTML = shown.length
+    ? `${shown.map((it) => `<button type="button" class="item-option" role="option" data-act="select-item" data-line="${index}" data-id="${esc(it.id)}" data-testid="f-item-${index}-option-${esc(it.id)}"><span>${esc(it.name)}</span><small>${esc(it.unit)} · ${money(it.priceKobo)}</small></button>`).join('')}${matches.length > shown.length ? '<div class="item-results-note">Type more to narrow the results.</div>' : ''}`
+    : '<div class="item-results-note">No matching items.</div>';
+  box.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
 }
 
 /** Re-work totals, the "will owe" line, the error and the Save button from what has been typed. Does not touch the inputs' focus. */

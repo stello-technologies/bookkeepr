@@ -27,11 +27,21 @@ async function saveItem(back) {
   const name = $('#ni-name').value.trim(), unit = $('#ni-unit').value.trim(), price = parseMoney($('#ni-price').value);
   if (!name || !unit) return ($('#ni-err').textContent = 'Enter a name and a unit such as bag, kg or carton');
   if (!Number.isFinite(price)) return ($('#ni-err').textContent = 'Enter the usual price, for example 1500 or 1500.50');
+  const existing = S.items.find((it) => itemNameKey(it.name) === itemNameKey(name));
+  if (existing) {
+    if (back && F) {
+      const l = F.lines[F.pendingLine] || F.lines[0];
+      l.itemId = existing.id; l.itemSearch = existing.name; l.price = inputMoney(existing.priceKobo);
+      renderForm();
+      toast(`${existing.name} already exists. Selected it instead.`);
+    } else $('#ni-err').textContent = `An item named ${existing.name} already exists. Search inventory and use it instead.`;
+    return;
+  }
   try {
     const it = await api('POST', '/api/items', { name, unit, priceKobo: price });
     ProductAnalytics.event('item_created');
     await refreshLists();
-    if (back && F) { const l = F.lines[F.pendingLine] || F.lines[0]; l.itemId = it.id; l.price = inputMoney(it.priceKobo); renderForm(); } else { closePanel(); toast(`${it.name} added`); route(); }
+    if (back && F) { const l = F.lines[F.pendingLine] || F.lines[0]; l.itemId = it.id; l.itemSearch = it.name; l.price = inputMoney(it.priceKobo); renderForm(); } else { closePanel(); toast(`${it.name} added`); route(); }
   } catch (e) { $('#ni-err').textContent = fail(e); }
 }
 

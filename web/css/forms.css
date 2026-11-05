@@ -95,6 +95,65 @@ select.in {
   min-width:0;
 }
 
+.selrow input[type="search"] {
+  flex:1;
+  min-width:0;
+}
+
+.item-results {
+  max-height:220px;
+  overflow-y:auto;
+  margin-top:6px;
+  border:1px solid var(--line2);
+  border-radius:12px;
+  background:var(--surface);
+}
+
+.item-results[hidden] {
+  display:none;
+}
+
+.item-option {
+  width:100%;
+  min-height:48px;
+  padding:8px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  text-align:left;
+  border-bottom:1px solid var(--line);
+}
+
+.item-option:hover,
+.item-option:focus-visible {
+  background:var(--surface-soft);
+}
+
+.item-option:last-of-type {
+  border-bottom:0;
+}
+
+.item-option span {
+  min-width:0;
+  overflow-wrap:anywhere;
+  font-weight:600;
+}
+
+.item-option small,
+.item-results-note {
+  color:var(--mute);
+  font-size:12px;
+}
+
+.item-option small {
+  flex:none;
+}
+
+.item-results-note {
+  padding:12px;
+}
+
 .pair {
   display:flex;
   gap:12px;

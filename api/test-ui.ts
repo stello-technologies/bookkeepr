@@ -84,6 +84,10 @@ async function until(check: () => Promise<boolean>, what: string, ms = 6000) {
   assert.fail(`timed out waiting for: ${what}`);
 }
 const id = (page: Page, testid: string) => page.getByTestId(testid);
+const selectItem = async (page: Page, line: number, name: string) => {
+  await id(page, `f-item-${line}`).fill(name);
+  await page.getByRole('option').filter({ hasText: name }).first().click();
+};
 const text = async (l: Locator) => (await l.innerText()).replace(/\s+/g, ' ').trim();
 const shows = (l: Locator, expected: string | RegExp, what: string) =>
   until(async () => { const t = (await l.count()) ? await text(l.first()) : ''; return typeof expected === 'string' ? t === expected : expected.test(t); }, `${what} to show ${expected}`);
@@ -147,10 +151,10 @@ test('dark mode is optional, readable on form controls, and remembered', async (
     scheme: getComputedStyle(document.documentElement).colorScheme,
     page: getComputedStyle(document.body).backgroundColor,
   }));
-  assert.notEqual(appearance.background, 'rgb(255, 255, 255)', 'form select is not left white in dark mode');
-  assert.notEqual(appearance.text, 'rgb(255, 255, 255)', 'select text remains readable');
+  assert.notEqual(appearance.background, 'rgb(255, 255, 255)', 'form item search is not left white in dark mode');
+  assert.notEqual(appearance.text, 'rgb(255, 255, 255)', 'item search text remains readable');
   assert.equal(appearance.page, 'rgb(13, 24, 17)', 'dark mode uses a deep green-tinted page background');
-  assert.equal(appearance.scheme, 'dark', 'native select options use dark colors');
+  assert.equal(appearance.scheme, 'dark', 'item search follows the dark color scheme');
   await page.reload();
   await id(page, 'hello').waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
@@ -193,7 +197,7 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
   await id(page, 'add-tab').click();
   await id(page, 'type-purchase').click();
   await id(page, 'f-kind').selectOption('opening_stock');
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('24');
   await id(page, 'f-price-0').fill('40000');
   assert.equal(await text(id(page, 'total')), '₦960,000');
@@ -205,7 +209,7 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
   // a sale where part is paid
   await id(page, 'add-tab').click();
   await id(page, 'f-party').selectOption({ label: 'Mama Ngozi' });
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   assert.equal(await id(page, 'f-price-0').inputValue(), '50,000', 'price is filled in from the item');
   await id(page, 'f-qty-0').fill('2');
   assert.equal(await text(id(page, 'total')), '₦100,000');
@@ -239,7 +243,7 @@ test('phone: stock in, sell on credit, take a payment, correct a mistake', async
 
   // selling more than the shelf holds is allowed: shops sell first and record stock later. The form says so, and does not block.
   await id(page, 'add-tab').click();
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('23');
   assert.equal(await text(id(page, 'f-err')), '');
   assert.ok(await id(page, 'save').isEnabled(), 'a sale is never refused for low stock');
@@ -305,7 +309,7 @@ test('search finds words, highlights them, and the chips and dates filter', asyn
   assert.deepEqual(errors, []);
 });
 
-test('the form only asks for what each type needs and checks the numbers', async () => {
+test('the form only asks for what each type needs, searches items case-insensitively and checks the numbers', async () => {
   const { page, call, errors } = await openApp('phone');
   const { ngozi } = await seed(call);
   await pull(page);
@@ -314,7 +318,15 @@ test('the form only asks for what each type needs and checks the numbers', async
   assert.ok(await save.isDisabled(), 'nothing filled in yet');
 
   // sale: fractional quantity, total worked out the same way the server does it
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'rIcE 50kg');
+  assert.equal(await id(page, 'f-item-0').inputValue(), 'Rice 50kg', 'search ignores letter case and shows the selected item');
+  await id(page, 'f-item-0-new').click();
+  await id(page, 'ni-name').fill('RICE   50KG');
+  await id(page, 'ni-unit').fill('bag');
+  await id(page, 'ni-price').fill('99999');
+  await id(page, 'save-item').click();
+  assert.equal(await id(page, 'f-item-0').inputValue(), 'Rice 50kg', 'a duplicate name reuses the existing item');
+  assert.equal((await call('GET', '/api/items')).data.length, 1, 'case and spacing variants do not create a duplicate');
   await id(page, 'f-qty-0').fill('2.5');
   await id(page, 'f-price-0').fill('1333.33');
   assert.equal(await text(id(page, 'total')), '₦3,333.33'); // 2.5 x 133,333 kobo = 333,332.5 -> rounds up
@@ -346,7 +358,7 @@ test('the form only asks for what each type needs and checks the numbers', async
 
   // saving a fractional sale: the server's total matches what the form promised
   await id(page, 'add-tab').click();
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('2.5');
   await id(page, 'f-price-0').fill('1333.33');
   await id(page, 'save').click();
@@ -361,7 +373,7 @@ test('a sale for more than the stock is accepted, and the item and Home say it i
   await seed(call); // 24 + 10 - 2 = 32 bags
   await pull(page);
   await id(page, 'add-tab').click();
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('40');
   assert.ok(await id(page, 'save').isEnabled());
   await id(page, 'save').click();
@@ -371,7 +383,7 @@ test('a sale for more than the stock is accepted, and the item and Home say it i
   await shows(id(page, 'stock-chip'), 'Short 8', 'the item shows how short it is');
   await id(page, 'add-tab').click(); // fixing it: record the stock that was bought, dated yesterday
   await id(page, 'type-purchase').click();
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('10');
   const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
   await id(page, 'f-date').fill(yesterday);
@@ -430,7 +442,7 @@ test('desktop layout: sidebar, table, stat strip and a side panel', async () => 
   assert.ok(panel.x > 900 && panel.width >= 330, 'the form is a column on the right');
   assert.ok(table.x + table.width <= panel.x + 1, 'the table is still visible beside it');
   assert.ok(!(await page.locator('#dim').isVisible()), 'nothing is dimmed');
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('1');
   await shot(page, '11-desktop-add');
   await id(page, 'save').click();
@@ -526,11 +538,11 @@ test('one invoice, several items: build it, see it, and stock follows', async ()
 
   await id(page, 'add-tab').click();
   await id(page, 'f-party').selectOption({ label: 'Ada' });
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('2');
   assert.equal(await text(id(page, 'f-lt-0')), '₦100,000');
   await id(page, 'add-line').click();
-  await id(page, 'f-item-1').selectOption({ label: 'Palm oil 5L' });
+  await selectItem(page, 1, 'Palm oil 5L');
   await id(page, 'f-qty-1').fill('3');
   assert.equal(await text(id(page, 'f-lt-1')), '₦45,000');
   assert.equal(await text(id(page, 'total')), '₦145,000');
@@ -538,7 +550,7 @@ test('one invoice, several items: build it, see it, and stock follows', async ()
   assert.ok(await id(page, 'save').isDisabled());
   await id(page, 'remove-line-2').click();
   assert.ok(await id(page, 'save').isEnabled());
-  assert.equal(await id(page, 'f-item-1').inputValue(), oil.id, 'removing a line keeps the others');
+  assert.equal(await id(page, 'f-item-1').inputValue(), 'Palm oil 5L', 'removing a line keeps the others');
   assert.equal(await id(page, 'f-paid').inputValue(), '145,000');
   await id(page, 'f-paid').fill('100000');
   assert.equal(await text(id(page, 'owe')), 'Ada will owe ₦45,000');
@@ -565,10 +577,10 @@ test('one invoice, several items: build it, see it, and stock follows', async ()
   assert.equal(await text(id(page, 'item-row').filter({ hasText: 'Palm' }).getByTestId('stock-chip')), '7 jerrycans');
 
   await id(page, 'add-tab').click(); // the same item on two lines is added up before checking stock
-  await id(page, 'f-item-0').selectOption({ label: 'Palm oil 5L' });
+  await selectItem(page, 0, 'Palm oil 5L');
   await id(page, 'f-qty-0').fill('4');
   await id(page, 'add-line').click();
-  await id(page, 'f-item-1').selectOption({ label: 'Palm oil 5L' });
+  await selectItem(page, 1, 'Palm oil 5L');
   await id(page, 'f-qty-1').fill('4');
   assert.equal(await text(id(page, 'f-err')), '', 'not an error: the sale is allowed');
   assert.match(await page.locator('#f-stock-1').innerText(), /Not enough/, 'but the form says the two lines together are more than the stock');
@@ -655,6 +667,7 @@ test('the invoice number has a copy mark that copies it', async () => {
   const { page, call, errors } = await openApp('phone');
   const { sale } = await seed(call);
   await pull(page);
+  await id(page, 'theme-toggle').click();
   await id(page, 'tab-entries').click();
   const row = id(page, 'entry-row').filter({ hasText: sale.invoiceNo });
   await row.waitFor();
@@ -662,6 +675,12 @@ test('the invoice number has a copy mark that copies it', async () => {
   // in the list: copies WITHOUT opening the entry
   await row.locator('[data-testid=copy-invoice]:visible').click();
   await shows(id(page, 'toast'), `Copied ${sale.invoiceNo}`, 'copy toast');
+  const toastColors = await id(page, 'toast').evaluate((el) => ({
+    background: getComputedStyle(el).backgroundColor,
+    text: getComputedStyle(el).color,
+  }));
+  assert.equal(toastColors.background, 'rgb(27, 46, 33)', 'copied toast uses a dark surface');
+  assert.equal(toastColors.text, 'rgb(234, 243, 236)', 'copied toast text is readable in dark mode');
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), sale.invoiceNo);
   assert.ok(await page.locator('#panel').isHidden(), 'copying did not open the entry');
   assert.ok((await row.locator('.copy').first().getAttribute('class'))?.includes('done'), 'the mark turns into a tick');
@@ -696,7 +715,7 @@ test('offline: a sale recorded with no connection waits, then reaches the cloud 
   await pull(page);
   await context.setOffline(true);
   await id(page, 'add-tab').click();
-  await id(page, 'f-item-0').selectOption({ label: 'Rice 50kg' });
+  await selectItem(page, 0, 'Rice 50kg');
   await id(page, 'f-qty-0').fill('3');
   await id(page, 'save').click();
   await shows(id(page, 'toast'), /^Saved · INV-/, 'saved with no connection');

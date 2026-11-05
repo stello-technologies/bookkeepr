@@ -239,6 +239,13 @@ const ACT = {
   type: (el) => switchType(el.dataset.type),
   'new-person': () => openNewPerson(false), 'new-item': () => openNewItem(false),
   'new-person-in-form': () => openNewPerson(true), 'new-item-in-form': (el) => openNewItem(true, Number(el.dataset.line)),
+  'select-item': (el) => {
+    const line = Number(el.dataset.line), l = F?.lines[line], it = item(el.dataset.id);
+    if (!l || !it) return;
+    l.itemId = it.id; l.itemSearch = it.name; l.price = inputMoney(it.priceKobo);
+    renderForm();
+    $(`#f-qty-${line}`)?.focus();
+  },
   'edit-price': (el) => openPriceEdit(el.dataset.id), 'save-price': (el) => savePrice(el.dataset.id),
   'save-person': (el) => savePerson(el.dataset.back), 'save-item': (el) => saveItem(el.dataset.back),
   copy: async (el) => {
@@ -299,7 +306,21 @@ document.addEventListener('input', (ev) => {
   if (F && id.startsWith('f-')) {
     const m = id.match(/^f-(qty|price)-(\d+)$/);
     if (m) { F.lines[Number(m[2])][m[1]] = v; derive(); }
-    else { const map = { 'f-paid': 'paid', 'f-amount': 'amount', 'f-note': 'note', 'f-date': 'date' }; if (map[id]) { F[map[id]] = v; if (id === 'f-paid') F.paidTouched = true; derive(); } }
+    else {
+      const itemMatch = id.match(/^f-item-(\d+)$/);
+      if (itemMatch) {
+        const index = Number(itemMatch[1]), line = F.lines[index];
+        if (line) {
+          line.itemSearch = v; line.itemId = ''; line.price = '';
+          const price = $(`#f-price-${index}`); if (price) price.value = '';
+          paintItemResults(index, v);
+          derive();
+        }
+      } else {
+        const map = { 'f-paid': 'paid', 'f-amount': 'amount', 'f-note': 'note', 'f-date': 'date' };
+        if (map[id]) { F[map[id]] = v; if (id === 'f-paid') F.paidTouched = true; derive(); }
+      }
+    }
   }
   if (id === 'q' || id === 'pq' || id === 'iq') {
     clearTimeout(typing);
@@ -312,13 +333,6 @@ document.addEventListener('change', (ev) => {
   if (!F) return;
   if (id === 'f-party') { F.partyId = v; derive(); }
   if (id === 'f-kind' && FORMS[v]) switchType(v);
-  const m = id.match(/^f-item-(\d+)$/);
-  if (m) {
-    const l = F.lines[Number(m[1])], it = item(v);
-    l.itemId = v;
-    if (it) { l.price = inputMoney(it.priceKobo); $(`#f-price-${m[1]}`).value = l.price; }
-    derive();
-  }
 });
 
 boot();

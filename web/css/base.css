@@ -66,6 +66,11 @@
   color:var(--g);
 }
 
+:root[data-theme="dark"] #toast:not(.bad) {
+  background:var(--surface-soft);
+  color:var(--ink);
+}
+
 :root[data-theme="dark"] .save:not(.warn),
 :root[data-theme="dark"] .b.p,
 :root[data-theme="dark"] .plus,
